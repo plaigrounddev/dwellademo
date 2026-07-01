@@ -45,7 +45,7 @@ test("sign-up route normalizes unsafe redirect targets back to the agent", async
   await expect(page.locator("main.auth-page")).toBeVisible();
 });
 
-test("same-origin agent route reaches the real local Eve runtime without fake fallback text", async ({ request }) => {
+test("same-origin agent route rejects unauthenticated durable-agent traffic", async ({ request }) => {
   const response = await request.post("/dwella/agent/runs", {
     data: {
       threadId: "thread-e2e-unauth",
@@ -55,12 +55,9 @@ test("same-origin agent route reaches the real local Eve runtime without fake fa
   });
   const payload = await response.json();
 
-  expect(response.status()).toBe(200);
-  expect(payload.status).toBe("completed");
-  expect(payload.error).toBeUndefined();
-  expect(payload.sessionId).toMatch(/^wrun_/);
-  expect(payload.assistantMessage).toEqual(expect.any(String));
-  expect(payload.assistantMessage.length).toBeGreaterThan(0);
+  expect(response.status()).toBe(401);
+  expect(payload.status).toBe("error");
+  expect(payload.error).toBe("not_authenticated");
 });
 
 test.describe("authenticated Clerk to Dwella agent", () => {
@@ -89,6 +86,7 @@ test.describe("authenticated Clerk to Dwella agent", () => {
     expect(agentResponse.status()).toBe(200);
     expect(responsePayload.status).not.toBe("unauthorized");
     expect(responsePayload.error).toBeUndefined();
+    expect(responsePayload.durableThreadId).toEqual(expect.any(String));
     await expect(page.getByText(testPrompt)).toBeVisible();
   });
 });

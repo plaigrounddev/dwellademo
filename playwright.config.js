@@ -12,20 +12,12 @@ export default defineConfig({
   },
   fullyParallel: false,
   reporter: [["list"]],
-  webServer: [
-    {
-      command: "npm run eve:e2e",
-      url: "http://127.0.0.1:3000/eve/v1/health",
-      reuseExistingServer: true,
-      timeout: 120_000,
-    },
-    {
-      command: `VITE_DWELLA_EVE_URL=http://127.0.0.1:3000 vite --host 127.0.0.1 --port ${appPort} --strictPort`,
-      url: baseURL,
-      reuseExistingServer: false,
-      timeout: 60_000,
-    },
-  ],
+  webServer: {
+    command: `vite --host 127.0.0.1 --port ${appPort} --strictPort`,
+    url: baseURL,
+    reuseExistingServer: false,
+    timeout: 60_000,
+  },
   use: {
     baseURL,
     channel: browserChannel,

@@ -3,7 +3,9 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const eveUrl = String(env.VITE_DWELLA_EVE_URL ?? env.DWELLA_EVE_URL ?? "http://127.0.0.1:3000").trim();
+  const convexSiteUrl = String(
+    env.VITE_CONVEX_SITE_URL ?? env.CONVEX_SITE_URL ?? deriveConvexSiteUrl(env.VITE_CONVEX_URL) ?? ""
+  ).trim();
 
   return {
     plugins: [react()],
@@ -13,12 +15,20 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
-      proxy: {
-        "/dwella/agent": {
-          target: eveUrl,
-          changeOrigin: true,
-        },
-      },
+      proxy: convexSiteUrl
+        ? {
+            "/dwella/agent": {
+              target: convexSiteUrl,
+              changeOrigin: true,
+            },
+          }
+        : undefined,
     },
   };
 });
+
+function deriveConvexSiteUrl(convexUrl) {
+  const cleanUrl = String(convexUrl ?? "").trim();
+  if (!cleanUrl.includes(".convex.cloud")) return "";
+  return cleanUrl.replace(".convex.cloud", ".convex.site");
+}

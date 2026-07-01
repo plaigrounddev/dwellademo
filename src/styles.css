@@ -23,6 +23,22 @@
   box-sizing: border-box;
 }
 
+.agent-conversation,
+.agent-preview,
+.agent-rail__menu,
+.agent-prompt textarea,
+.rich-document-surface {
+  scrollbar-width: none;
+}
+
+.agent-conversation::-webkit-scrollbar,
+.agent-preview::-webkit-scrollbar,
+.agent-rail__menu::-webkit-scrollbar,
+.agent-prompt textarea::-webkit-scrollbar,
+.rich-document-surface::-webkit-scrollbar {
+  display: none;
+}
+
 html,
 body,
 #root {
@@ -114,6 +130,14 @@ button {
   background: rgba(255, 255, 255, 0.36);
 }
 
+.agent-rail__account {
+  position: absolute;
+  left: 50%;
+  bottom: 0.2rem;
+  display: inline-flex;
+  transform: translateX(-50%);
+}
+
 .agent-rail__button {
   display: inline-flex;
   width: 2.28rem;
@@ -144,6 +168,32 @@ button {
   height: 1rem;
   flex: 0 0 auto;
   color: currentColor;
+}
+
+.cl-modalContent,
+.cl-card,
+.cl-cardBox,
+.cl-userProfile-root,
+.cl-userButtonPopoverCard {
+  color: #181918 !important;
+}
+
+.cl-modalContent p,
+.cl-modalContent span,
+.cl-card p,
+.cl-card span,
+.cl-userProfile-root p,
+.cl-userProfile-root span,
+.cl-userButtonPopoverCard p,
+.cl-userButtonPopoverCard span {
+  color: inherit;
+}
+
+.cl-modalContent,
+.cl-card,
+.cl-cardBox,
+.cl-userButtonPopoverCard {
+  background: #fbfaf6 !important;
 }
 
 .agent-drawer {
@@ -1026,8 +1076,7 @@ button {
   padding: 0.1rem clamp(1rem, 3vw, 2.2rem) clamp(1rem, 3vw, 2.2rem);
 }
 
-.document-title-input,
-.document-body-input {
+.document-title-input {
   width: 100%;
   border: 0;
   outline: none;
@@ -1038,23 +1087,109 @@ button {
 
 .document-title-input {
   flex: 0 0 auto;
-  min-height: 3.4rem;
-  font-size: clamp(1.45rem, 2vw, 2.05rem);
+  min-height: 2.85rem;
+  font-size: clamp(1.18rem, 1.35vw, 1.45rem);
   font-weight: 500;
-  line-height: 1.18;
+  line-height: 1.22;
 }
 
-.document-body-input {
+.rich-document-surface {
   flex: 1;
   min-height: 0;
-  resize: none;
+  overflow: auto;
+  border-top: 1px solid rgba(24, 25, 24, 0.08);
+  padding-top: 0.65rem;
   color: rgba(24, 25, 24, 0.64);
   font-size: 1rem;
   line-height: 1.72;
 }
 
-.document-body-input::placeholder {
-  color: rgba(24, 25, 24, 0.28);
+.rich-document-surface .bn-container {
+  min-height: 100%;
+  background: transparent;
+  color: rgba(24, 25, 24, 0.78);
+}
+
+.rich-document-surface .bn-editor {
+  min-height: clamp(28rem, 62vh, 54rem);
+  padding: 0.4rem 0 3rem;
+  background: transparent;
+}
+
+.rich-document-surface .bn-block-content {
+  font-size: 1rem;
+  line-height: 1.68;
+}
+
+.rich-document-surface h1,
+.rich-document-surface h2,
+.rich-document-surface h3,
+.rich-document-surface h4,
+.rich-document-surface .bn-block-content[data-content-type="heading"] {
+  margin: 0.54rem 0 0.22rem;
+  color: rgba(24, 25, 24, 0.82);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.28;
+}
+
+.rich-document-surface h1,
+.rich-document-surface .bn-block-content[data-level="1"] {
+  font-size: 1.32rem;
+}
+
+.rich-document-surface h2,
+.rich-document-surface .bn-block-content[data-level="2"] {
+  font-size: 1.16rem;
+}
+
+.rich-document-surface h3,
+.rich-document-surface h4,
+.rich-document-surface .bn-block-content[data-level="3"] {
+  font-size: 1.04rem;
+}
+
+.rich-document-surface table {
+  max-width: 100%;
+}
+
+.rich-document-loading {
+  display: grid;
+  flex: 1;
+  min-height: 12rem;
+  place-items: center;
+  border-top: 1px solid rgba(24, 25, 24, 0.08);
+  color: rgba(24, 25, 24, 0.46);
+  font-size: 0.94rem;
+}
+
+.rich-document-error {
+  display: grid;
+  flex: 1;
+  min-height: 12rem;
+  place-items: center;
+  align-content: center;
+  gap: 0.8rem;
+  border-top: 1px solid rgba(24, 25, 24, 0.08);
+  color: rgba(24, 25, 24, 0.56);
+  text-align: center;
+}
+
+.rich-document-error p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.rich-document-error button {
+  height: 2.2rem;
+  border: 0;
+  border-radius: 7px;
+  background: #f2f2ef;
+  color: rgba(24, 25, 24, 0.72);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  padding: 0 0.88rem;
 }
 
 .live-map-canvas {
@@ -2150,13 +2285,19 @@ button {
 
   .agent-rail__menu {
     flex-direction: row;
-    max-width: calc(100% - 3.2rem);
+    max-width: calc(100% - 6.8rem);
     overflow-x: auto;
     scrollbar-width: none;
   }
 
   .agent-rail__menu::-webkit-scrollbar {
     display: none;
+  }
+
+  .agent-rail__account {
+    position: static;
+    flex: 0 0 auto;
+    transform: none;
   }
 
   .agent-drawer {
@@ -2452,11 +2593,4 @@ button {
     width: 100%;
     justify-self: stretch;
   }
-}
-
-.agent-user-button {
-  position: fixed;
-  top: 16px;
-  right: 16px;
-  z-index: 80;
 }

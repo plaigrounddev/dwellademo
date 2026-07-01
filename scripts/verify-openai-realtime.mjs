@@ -2,14 +2,14 @@ import { loadLocalEnv } from "./load-local-env.mjs";
 import {
   OPENAI_REALTIME_MODEL,
   createOpenAIRealtimeClientSecret,
-} from "../agent/lib/openaiRealtime.js";
-import { DWELLA_AGENT_INSTRUCTIONS } from "../convex/dwellaConversationContract.js";
+} from "../convex/openaiRealtime.js";
+import { DWELLA_REALTIME_INSTRUCTIONS } from "../convex/dwellaConversationContract.js";
 
 await loadLocalEnv();
 
 const result = await createOpenAIRealtimeClientSecret({
   apiKey: process.env.OPENAI_API_KEY,
-  instructions: DWELLA_AGENT_INSTRUCTIONS,
+  instructions: DWELLA_REALTIME_INSTRUCTIONS,
   tools: [
     {
       type: "function",

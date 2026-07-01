@@ -1,24 +1,30 @@
 # Dwella Demo
 
-Dwella uses Vite/React for the app shell, Convex as the durable workspace store, and Eve as the single long-running agent runtime.
+Dwella uses Vite/React for the app shell and Convex for the durable workspace, agent thread store, HTTP bridge, and Realtime voice token route.
 
 ## Agent Runtime
 
-The Eve-authored agent lives under `agent/`:
+The long-running agent is built with `convex-durable-agents`.
 
-- `agent/instructions.md` contains the Dwella system instructions.
-- `agent/skills/` contains reusable playbooks for intake, builder outreach, and quote review.
-- `agent/tools/` contains the typed workspace tools that return Dwella `screenCommands`.
-- `agent/channels/dwella.ts` exposes the compatibility HTTP routes used by the existing shell.
+- `convex/convex.config.ts` registers the Durable Agents component.
+- `convex/dwellaAgentApi.js` defines the AI SDK stream handler and workspace tools.
+- `convex/dwellaAgent.js` maps browser thread ids to Convex durable-agent thread ids.
+- `convex/http.js` preserves the shell-facing `/dwella/agent/*` routes.
+- `convex/dwellaAgentTools.js` returns the `screenCommands` consumed by the existing React workspace shell.
 
-Run the agent runtime with:
+The browser app calls the same-origin `/dwella/agent/*` path by default. Local Vite proxies that path to `VITE_CONVEX_SITE_URL`, or derives it from `VITE_CONVEX_URL` by replacing `.convex.cloud` with `.convex.site`.
+
+Required server-side Convex env:
 
 ```bash
-npm run eve:dev
+npx convex env set OPENAI_API_KEY sk-...
 ```
 
-The browser app calls the same-origin `/dwella/agent/*` path. Local Vite proxies that path to a local Eve server (`VITE_DWELLA_EVE_URL` or `http://127.0.0.1:3000`). Vercel mounts the Vite shell and Eve runtime as services in the same project, then rewrites `/dwella/agent/*` directly to Eve.
+Optional:
 
-Eve uses `DWELLA_EVE_MODEL` or `AI_GATEWAY_MODEL` through Vercel AI Gateway when configured. Otherwise it uses the OpenAI AI SDK provider with the existing `OPENAI_API_KEY`. The sandbox uses Eve's default backend selection with `microsandbox` installed for file/shell workspace support.
+```bash
+npx convex env set OPENAI_TEXT_MODEL gpt-4.1-mini
+npx convex env set OPENAI_TRANSCRIBE_MODEL gpt-4o-transcribe
+```
 
-Convex remains the durable store for documents, file entries, map state, and browser state. It no longer owns the agent HTTP or Realtime voice routes.
+Convex remains the durable store for documents, file entries, map state, browser state, and agent conversation state.

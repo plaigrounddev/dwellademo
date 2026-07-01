@@ -1,8 +1,19 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { ProsemirrorSync } from "@convex-dev/prosemirror-sync";
+import { Transform } from "@tiptap/pm/transform";
+import { components } from "./_generated/api";
+import {
+  createBlockNoteDocumentFromText,
+  extractTextFromNode,
+  getBlockNoteSchema,
+  textToBlockContainers,
+} from "./richDocuments.js";
 
 const DEFAULT_MAP_CENTER = { lat: -27.4698, lng: 153.0251 };
 const DEFAULT_MAP_ZOOM = 12;
+const RICH_DOCUMENT_EXTENSION = "dwella";
+const prosemirrorSync = new ProsemirrorSync(components.prosemirrorSync);
 
 export const ensureThreadWorkspace = mutation({
   args: { threadId: v.string() },
@@ -46,12 +57,13 @@ export const createDocument = mutation({
       ownerTokenIdentifier,
       key: `document:${documentId}`,
       parentKey: "documents",
-      name: `${title}.md`,
+      name: documentFilename(title),
       kind: "document",
       documentId,
       createdAt: now,
       updatedAt: now,
     });
+    await ensureRichDocument(ctx, documentId, args.content ?? "");
     await patchThread(ctx, ownerTokenIdentifier, args.threadId, { activeDocumentId: documentId, updatedAt: now });
     return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
   },
@@ -76,14 +88,58 @@ export const updateDocument = mutation({
     if (args.title !== undefined) patch.title = cleanName(args.title, "Untitled document");
     if (args.content !== undefined) patch.content = args.content;
     await ctx.db.patch(args.documentId, patch);
+    if (args.content !== undefined) {
+      await replaceRichDocument(ctx, args.documentId, args.content);
+    }
 
     if (patch.title) {
       const file = await findFileByKey(ctx, ownerTokenIdentifier, args.threadId, `document:${args.documentId}`);
       if (file) {
-        await ctx.db.patch(file._id, { name: `${patch.title}.md`, updatedAt: now });
+        await ctx.db.patch(file._id, { name: documentFilename(patch.title), updatedAt: now });
       }
     }
     await patchThread(ctx, ownerTokenIdentifier, args.threadId, { activeDocumentId: args.documentId, updatedAt: now });
+    return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+  },
+});
+
+export const appendDocumentText = mutation({
+  args: {
+    threadId: v.string(),
+    documentId: v.id("agentDocuments"),
+    text: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx);
+    const document = await ctx.db.get(args.documentId);
+    if (!document || document.threadId !== args.threadId || document.ownerTokenIdentifier !== ownerTokenIdentifier) {
+      return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+    }
+
+    const text = String(args.text ?? "").trim();
+    if (!text) return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+
+    await appendRichDocument(ctx, args.documentId, text);
+    await patchThread(ctx, ownerTokenIdentifier, args.threadId, { activeDocumentId: args.documentId, updatedAt: Date.now() });
+    return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+  },
+});
+
+export const replaceDocumentText = mutation({
+  args: {
+    threadId: v.string(),
+    documentId: v.id("agentDocuments"),
+    text: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx);
+    const document = await ctx.db.get(args.documentId);
+    if (!document || document.threadId !== args.threadId || document.ownerTokenIdentifier !== ownerTokenIdentifier) {
+      return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+    }
+
+    await replaceRichDocument(ctx, args.documentId, args.text);
+    await patchThread(ctx, ownerTokenIdentifier, args.threadId, { activeDocumentId: args.documentId, updatedAt: Date.now() });
     return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
   },
 });
@@ -157,6 +213,55 @@ export const createFile = mutation({
     });
     await patchThread(ctx, ownerTokenIdentifier, args.threadId, { updatedAt: now });
     return await readWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+  },
+});
+
+export const generateDocumentAssetUploadUrl = mutation({
+  args: { threadId: v.string() },
+  handler: async (ctx, args) => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx);
+    await ensureBaseWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const registerDocumentAsset = mutation({
+  args: {
+    threadId: v.string(),
+    storageId: v.id("_storage"),
+    name: v.string(),
+    mimeType: v.optional(v.string()),
+    size: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const ownerTokenIdentifier = await requireOwnerTokenIdentifier(ctx);
+    await ensureBaseWorkspace(ctx, ownerTokenIdentifier, args.threadId);
+    const now = Date.now();
+    const url = await ctx.storage.getUrl(args.storageId);
+    const key = `asset:${args.storageId}`;
+    const filePatch = {
+      name: cleanName(args.name, "Document image"),
+      ...(cleanOptionalString(args.mimeType) ? { mimeType: cleanOptionalString(args.mimeType) } : {}),
+      ...(normalizeOptionalNumber(args.size) ? { size: normalizeOptionalNumber(args.size) } : {}),
+      source: "document_upload",
+      updatedAt: now,
+    };
+    const existingFile = await findFileByKey(ctx, ownerTokenIdentifier, args.threadId, key);
+    if (existingFile) {
+      await ctx.db.patch(existingFile._id, filePatch);
+    } else {
+      await ctx.db.insert("agentFiles", {
+        threadId: args.threadId,
+        ownerTokenIdentifier,
+        key,
+        parentKey: "root",
+        kind: "file",
+        createdAt: now,
+        ...filePatch,
+      });
+    }
+    await patchThread(ctx, ownerTokenIdentifier, args.threadId, { updatedAt: now });
+    return { url: url ?? "", workspace: await readWorkspace(ctx, ownerTokenIdentifier, args.threadId) };
   },
 });
 
@@ -303,12 +408,13 @@ async function ensureStarterDocument(ctx, ownerTokenIdentifier, threadId) {
     ownerTokenIdentifier,
     key: `document:${documentId}`,
     parentKey: "documents",
-    name: "Untitled document.md",
+    name: documentFilename("Untitled document"),
     kind: "document",
     documentId,
     createdAt: now,
     updatedAt: now,
   });
+  await ensureRichDocument(ctx, documentId, "");
   await patchThread(ctx, ownerTokenIdentifier, threadId, { activeDocumentId: documentId, updatedAt: now });
   return await ctx.db.get(documentId);
 }
@@ -398,6 +504,61 @@ async function patchThread(ctx, ownerTokenIdentifier, threadId, patch) {
   if (thread) await ctx.db.patch(thread._id, patch);
 }
 
+async function ensureRichDocument(ctx, documentId, initialText = "") {
+  const id = String(documentId);
+  const version = await ctx.runQuery(components.prosemirrorSync.lib.latestVersion, { id });
+  if (version !== null) return;
+  await prosemirrorSync.create(ctx, id, createBlockNoteDocumentFromText(initialText));
+}
+
+async function replaceRichDocument(ctx, documentId, text = "") {
+  await ensureRichDocument(ctx, documentId, "");
+  const schema = getBlockNoteSchema();
+  const nextDoc = schema.nodeFromJSON(createBlockNoteDocumentFromText(text));
+  const node = await prosemirrorSync.transform(
+    ctx,
+    String(documentId),
+    schema,
+    (doc) => {
+      const tr = new Transform(doc);
+      tr.replaceWith(0, doc.content.size, nextDoc.content);
+      return tr.doc.eq(doc) ? null : tr;
+    },
+    { clientId: "dwella-document-replace" }
+  );
+  await ctx.db.patch(documentId, {
+    content: extractTextFromNode(node),
+    updatedAt: Date.now(),
+  });
+}
+
+async function appendRichDocument(ctx, documentId, text = "") {
+  await ensureRichDocument(ctx, documentId, "");
+  const blocks = textToBlockContainers(text);
+  if (!blocks.length) return;
+  const schema = getBlockNoteSchema();
+  const appendDoc = schema.nodeFromJSON({ type: "doc", content: [{ type: "blockGroup", content: blocks }] });
+  const node = await prosemirrorSync.transform(
+    ctx,
+    String(documentId),
+    schema,
+    (doc) => {
+      const tr = new Transform(doc);
+      if (!doc.firstChild || doc.firstChild.type.name !== "blockGroup") {
+        tr.replaceWith(0, doc.content.size, appendDoc.content);
+        return tr.doc.eq(doc) ? null : tr;
+      }
+      tr.insert(Math.max(0, doc.content.size - 1), appendDoc.firstChild.content);
+      return tr.doc.eq(doc) ? null : tr;
+    },
+    { clientId: "dwella-document-append" }
+  );
+  await ctx.db.patch(documentId, {
+    content: extractTextFromNode(node),
+    updatedAt: Date.now(),
+  });
+}
+
 async function requireOwnerTokenIdentifier(ctx) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity?.tokenIdentifier) {
@@ -419,4 +580,8 @@ function cleanOptionalString(value) {
 function normalizeOptionalNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) && number > 0 ? number : undefined;
+}
+
+function documentFilename(title) {
+  return `${cleanName(title, "Untitled document")}.${RICH_DOCUMENT_EXTENSION}`;
 }

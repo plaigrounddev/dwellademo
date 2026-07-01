@@ -2,6 +2,16 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  dwellaDurableThreads: defineTable({
+    clientThreadId: v.string(),
+    agentThreadId: v.string(),
+    ownerTokenIdentifier: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_ownerTokenIdentifier_and_clientThreadId", ["ownerTokenIdentifier", "clientThreadId"])
+    .index("by_agentThreadId", ["agentThreadId"]),
+
   agentThreads: defineTable({
     threadId: v.string(),
     ownerTokenIdentifier: v.optional(v.string()),

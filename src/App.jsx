@@ -4,9 +4,16 @@ import L from "leaflet";
 import { ArrowUp, CirclePlus, Files, FileText, Home, Map, MessageCircle, Mic, PanelsTopLeft, X } from "lucide-react";
 import { SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { useConvex, useConvexAuth } from "convex/react";
+import { useThreadMessages } from "convex-durable-agents/react";
+import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
+import { BlockNoteEditor } from "@blocknote/core";
+import "@blocknote/core/fonts/inter.css";
+import { BlockNoteView } from "@blocknote/mantine";
+import "@blocknote/mantine/style.css";
 import "leaflet/dist/leaflet.css";
 import "streamdown/styles.css";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import { api } from "../convex/_generated/api";
 import { createDwellaAgentClient } from "./agent/client.js";
 import { createDocumentExport, downloadDocumentExport } from "./agent/documentExport.js";
 import { DocumentAnalysisIllustration } from "./components/illustrations/document-analysis.jsx";
@@ -166,6 +173,37 @@ const artifactMenuItems = [
   { label: "Files workspace", icon: "files" }
 ];
 
+const agentUserButtonAppearance = {
+  elements: {
+    avatarBox: {
+      width: "34px",
+      height: "34px",
+      borderRadius: "8px",
+      border: "1px solid rgba(24, 25, 24, 0.12)",
+      boxShadow: "0 8px 28px rgba(24, 25, 24, 0.08)",
+    },
+    userButtonPopoverCard: {
+      color: "#181918",
+      backgroundColor: "#fbfaf6",
+      border: "1px solid rgba(24, 25, 24, 0.1)",
+      borderRadius: "8px",
+      boxShadow: "0 18px 60px rgba(31, 33, 31, 0.12)",
+    },
+    userButtonPopoverActionButton: {
+      color: "#181918",
+    },
+    userButtonPopoverActionButtonText: {
+      color: "#181918",
+    },
+    userButtonPopoverFooter: {
+      color: "#181918",
+    },
+    userPreviewTextContainer: {
+      color: "#181918",
+    },
+  },
+};
+
 const lucideIcons = {
   browser: PanelsTopLeft,
   chat: MessageCircle,
@@ -180,11 +218,130 @@ function AgentIcon({ name }) {
   return <Icon className="agent-icon" aria-hidden="true" strokeWidth={1.35} absoluteStrokeWidth />;
 }
 
-function appendDocumentText(content, text) {
+function appendPlainDocumentText(content, text) {
   const cleanText = String(text ?? "").trim();
   if (!cleanText) return content ?? "";
   const currentContent = String(content ?? "").trimEnd();
   return currentContent ? `${currentContent}\n\n${cleanText}` : cleanText;
+}
+
+function createProseMirrorDocumentFromText(text = "") {
+  const blocks = createBlockNoteBlocksFromText(text).map((block, index) => blockToProseMirrorContainer(block, index));
+  return {
+    type: "doc",
+    content: blocks.length
+      ? [
+          {
+            type: "blockGroup",
+            content: blocks,
+          },
+        ]
+      : [],
+  };
+}
+
+function createBlockNoteBlocksFromText(text = "") {
+  const lines = String(text ?? "")
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) return [{ type: "paragraph", content: "" }];
+
+  return lines.map((line) => {
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      return {
+        type: "heading",
+        props: { level: Math.min(3, heading[1].length) },
+        content: heading[2].trim(),
+      };
+    }
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      return { type: "bulletListItem", content: bullet[1].trim() };
+    }
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (numbered) {
+      return { type: "numberedListItem", content: numbered[1].trim() };
+    }
+    return { type: "paragraph", content: line };
+  });
+}
+
+function blockToProseMirrorContainer(block, index) {
+  return {
+    type: "blockContainer",
+    attrs: { id: createBlockNoteBlockId(index) },
+    content: [blockToProseMirrorContent(block)],
+  };
+}
+
+function blockToProseMirrorContent(block) {
+  const content = block.content ? [{ type: "text", text: String(block.content) }] : undefined;
+  const attrs = {
+    backgroundColor: "default",
+    textColor: "default",
+    textAlignment: "left",
+  };
+  if (block.type === "heading") {
+    return {
+      type: "heading",
+      attrs: { ...attrs, level: block.props?.level ?? 2, isToggleable: false },
+      ...(content ? { content } : {}),
+    };
+  }
+  if (block.type === "bulletListItem" || block.type === "numberedListItem") {
+    return {
+      type: block.type,
+      attrs,
+      ...(content ? { content } : {}),
+    };
+  }
+  return {
+    type: "paragraph",
+    attrs,
+    ...(content ? { content } : {}),
+  };
+}
+
+function createBlockNoteBlockId(index) {
+  return globalThis.crypto?.randomUUID?.() ?? `local-block-${Date.now().toString(36)}-${index}`;
+}
+
+function blockNoteBlocksToPlainText(blocks = []) {
+  const lines = [];
+  for (const block of blocks) {
+    collectBlockNoteText(block, lines);
+  }
+  return lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function collectBlockNoteText(block, lines) {
+  if (!block) return;
+  const text = inlineContentToPlainText(block.content);
+  if (text) lines.push(text);
+  if (Array.isArray(block.children)) {
+    for (const child of block.children) collectBlockNoteText(child, lines);
+  }
+}
+
+function inlineContentToPlainText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (item?.type === "text") return String(item.text ?? "");
+      if (Array.isArray(item?.content)) return inlineContentToPlainText(item.content);
+      return "";
+    })
+    .join("");
 }
 
 function shouldOpenArtifactForCommand(type) {
@@ -210,9 +367,39 @@ function createModelMarkerId(existingId) {
   return `model-marker-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-const agentEndpoint = "/dwella/agent";
+function createClientMessageId(prefix) {
+  const randomId = globalThis.crypto?.randomUUID?.();
+  if (randomId) return `${prefix}-${randomId}`;
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+const agentEndpoint = import.meta.env.VITE_DWELLA_AGENT_ENDPOINT || "/dwella/agent";
 const localAuthBypass = import.meta.env.DEV && import.meta.env.VITE_DWELLA_LOCAL_AUTH_BYPASS === "true";
 const StreamdownRenderer = React.lazy(() => import("streamdown").then((module) => ({ default: module.Streamdown })));
+
+function extractDurableMessageText(message) {
+  const parts = Array.isArray(message?.parts) ? message.parts : [];
+  return parts
+    .map((part) => {
+      if (part?.type === "text") return String(part.text ?? "");
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+function getLatestAssistantTextSince(messages = [], startedAt = 0) {
+  const minCreationTime = Number(startedAt);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant") continue;
+    if (Number(message?._creationTime ?? message?.metadata?._creationTime ?? 0) <= minCreationTime) continue;
+    const text = extractDurableMessageText(message);
+    if (text) return text;
+  }
+  return "";
+}
 
 function AgentMessageContent({ message }) {
   if (message.role === "user") {
@@ -414,6 +601,16 @@ function useDwellaConvexClient() {
   return useConvex();
 }
 
+function useDwellaThreadMessages(input) {
+  if (localAuthBypass) {
+    return {
+      isRunning: false,
+      messages: [],
+    };
+  }
+  return useThreadMessages(input);
+}
+
 function AgentShell() {
   const convexClient = useDwellaConvexClient();
   const { isAuthenticated, isLoading } = useDwellaConvexAuth();
@@ -434,6 +631,13 @@ function AgentShell() {
   );
   const initialArtifact = getInitialArtifact();
   const [thread] = React.useState(() => agentClient.getOrCreateThread());
+  const durableConversation = useDwellaThreadMessages({
+    messagesQuery: api.dwellaAgent.listClientThreadMessages,
+    streamingMessageUpdatesQuery: api.dwellaAgent.streamClientThreadUpdates,
+    threadQuery: api.dwellaAgent.getClientThread,
+    threadId: thread.id,
+    skip: localAuthBypass || !isAuthenticated,
+  });
   const [artifactMenuOpen, setArtifactMenuOpen] = React.useState(false);
   const [artifactOpen, setArtifactOpen] = React.useState(() => Boolean(getRequestedArtifact()));
   const [activeArtifact, setActiveArtifact] = React.useState(initialArtifact);
@@ -468,7 +672,27 @@ function AgentShell() {
   const realtimeDisconnectTimerRef = React.useRef(null);
   const realtimeClosingRef = React.useRef(false);
   const realtimeToolCallsRef = React.useRef(new Set());
+  const realtimeAssistantMessageIdRef = React.useRef(null);
+  const realtimeAssistantTextRef = React.useRef("");
   const artifactDismissedRef = React.useRef(false);
+  const pendingAssistantMessageIdRef = React.useRef(null);
+  const pendingAgentStartedAtRef = React.useRef(0);
+  const durableLatestCreationTimeRef = React.useRef(0);
+  const durableIsRunning = durableConversation.isRunning && !localAuthBypass;
+  const isAgentBusy = isSending || durableIsRunning;
+  const pendingDurableAssistantText = React.useMemo(
+    () => getLatestAssistantTextSince(durableConversation.messages, pendingAgentStartedAtRef.current),
+    [durableConversation.messages]
+  );
+
+  React.useEffect(() => {
+    for (const message of durableConversation.messages ?? []) {
+      const creationTime = Number(message?._creationTime ?? 0);
+      if (creationTime > durableLatestCreationTimeRef.current) {
+        durableLatestCreationTimeRef.current = creationTime;
+      }
+    }
+  }, [durableConversation.messages]);
 
   React.useEffect(() => {
     saveWorkspace(thread.id, workspace);
@@ -477,6 +701,21 @@ function AgentShell() {
   React.useEffect(() => {
     saveConversationMessages(thread.id, messages);
   }, [thread.id, messages]);
+
+  React.useEffect(() => {
+    const pendingAssistantMessageId = pendingAssistantMessageIdRef.current;
+    if (!pendingAssistantMessageId || !pendingDurableAssistantText) return;
+    setMessages((current) => {
+      let changed = false;
+      const nextMessages = current.map((message) => {
+        if (message.id !== pendingAssistantMessageId) return message;
+        if (message.content === pendingDurableAssistantText) return message;
+        changed = true;
+        return { ...message, content: pendingDurableAssistantText };
+      });
+      return changed ? nextMessages : current;
+    });
+  }, [pendingDurableAssistantText]);
 
   React.useEffect(() => {
     workspaceRef.current = workspace;
@@ -592,7 +831,28 @@ function AgentShell() {
       updateDocument(documentId, patch) {
         updateWorkspace((current) => updateLocalDocument(current, documentId, patch));
         if (isConvexDocumentId(documentId)) {
-          runWorkspaceMutation((store) => store.updateDocument(thread.id, documentId, patch));
+          // Content for synced documents flows through prosemirror-sync steps; pushing it
+          // here as plain text would overwrite rich formatting on every keystroke.
+          const { content: _syncedContent, ...serverPatch } = patch ?? {};
+          if (Object.keys(serverPatch).length) {
+            runWorkspaceMutation((store) => store.updateDocument(thread.id, documentId, serverPatch));
+          }
+        }
+      },
+      appendDocumentText(documentId, text) {
+        updateWorkspace((current) => {
+          const activeDocument = current.documents.find((document) => document.id === documentId);
+          if (!activeDocument) return current;
+          return updateLocalDocument(current, documentId, { content: appendPlainDocumentText(activeDocument.content, text) });
+        });
+        if (isConvexDocumentId(documentId)) {
+          runWorkspaceMutation((store) => store.appendDocumentText(thread.id, documentId, text));
+        }
+      },
+      replaceDocumentText(documentId, text) {
+        updateWorkspace((current) => updateLocalDocument(current, documentId, { content: String(text ?? "") }));
+        if (isConvexDocumentId(documentId)) {
+          runWorkspaceMutation((store) => store.replaceDocumentText(thread.id, documentId, String(text ?? "")));
         }
       },
       setActiveDocument(documentId) {
@@ -634,8 +894,24 @@ function AgentShell() {
         updateWorkspace((current) => ({ ...current, browser: { ...current.browser, url } }));
         runWorkspaceMutation((store) => store.updateBrowserUrl(thread.id, url));
       },
+      async uploadDocumentAsset(file) {
+        if (workspacePersistenceRef.current !== "convex" || !agentWorkspaceStore) {
+          return URL.createObjectURL(file);
+        }
+        try {
+          const result = await agentWorkspaceStore.uploadDocumentAsset(thread.id, file);
+          if (result?.workspace) {
+            setWorkspace(normalizeWorkspace(result.workspace));
+            setWorkspacePersistence("convex");
+          }
+          return result?.url || URL.createObjectURL(file);
+        } catch (error) {
+          console.warn("Dwella document asset upload failed; using a local preview URL.", error);
+          return URL.createObjectURL(file);
+        }
+      },
     }),
-    [runWorkspaceMutation, thread.id, updateWorkspace]
+    [agentWorkspaceStore, runWorkspaceMutation, thread.id, updateWorkspace]
   );
 
   const exportDocumentForUser = React.useCallback(
@@ -688,8 +964,7 @@ function AgentShell() {
           const currentWorkspace = workspaceRef.current;
           const activeDocument = currentWorkspace.documents.find((document) => document.id === currentWorkspace.activeDocumentId) ?? currentWorkspace.documents[0];
           if (activeDocument) {
-            const nextContent = appendDocumentText(activeDocument.content, command.payload?.text);
-            workspaceActions.updateDocument(activeDocument.id, { content: nextContent });
+            workspaceActions.appendDocumentText(activeDocument.id, command.payload?.text);
           }
         }
 
@@ -697,7 +972,7 @@ function AgentShell() {
           const currentWorkspace = workspaceRef.current;
           const activeDocument = currentWorkspace.documents.find((document) => document.id === currentWorkspace.activeDocumentId) ?? currentWorkspace.documents[0];
           if (activeDocument) {
-            workspaceActions.updateDocument(activeDocument.id, { content: String(command.payload?.text ?? "") });
+            workspaceActions.replaceDocumentText(activeDocument.id, command.payload?.text);
           }
         }
 
@@ -752,13 +1027,20 @@ function AgentShell() {
     async (message, attachments = []) => {
       const trimmed = message.trim();
       const validAttachments = Array.isArray(attachments) ? attachments : [];
-      if ((!trimmed && !validAttachments.length) || isSending) return;
+      if ((!trimmed && !validAttachments.length) || isAgentBusy) return;
       const messageForAgent = trimmed || (validAttachments.length ? "Please review the attached file." : "");
       const visibleAttachments = normalizeVisibleAttachments(validAttachments);
+      const timestamp = Date.now();
+      const pendingAssistantMessageId = `assistant-pending-${timestamp}`;
+      pendingAssistantMessageIdRef.current = pendingAssistantMessageId;
+      // Prefer the newest durable message's server timestamp as the "new reply" threshold so a
+      // wrong client clock cannot suppress streamed replies or backfill a stale one.
+      pendingAgentStartedAtRef.current = durableLatestCreationTimeRef.current || timestamp;
       setIsSending(true);
       setMessages((current) => [
         ...current,
-        { id: `user-${Date.now()}`, role: "user", content: messageForAgent, attachments: visibleAttachments },
+        { id: `user-${timestamp}`, role: "user", content: messageForAgent, attachments: visibleAttachments },
+        { id: pendingAssistantMessageId, role: "assistant", content: "" },
       ]);
       setPrompt("");
       for (const attachment of validAttachments) {
@@ -782,20 +1064,54 @@ function AgentShell() {
           attachments: validAttachments,
           workspaceContext: createWorkspaceContextForAgent(workspaceRef.current, activeArtifact),
         });
-        if (result?.assistantMessage) {
-          setMessages((current) => [
-            ...current,
-            { id: `assistant-${Date.now()}`, role: "assistant", content: result.assistantMessage },
-          ]);
+        const assistantMessage = String(result?.assistantMessage ?? "").trim();
+        if (assistantMessage) {
+          setMessages((current) => {
+            let replacedPendingMessage = false;
+            const nextMessages = current.map((message) => {
+              if (message.id !== pendingAssistantMessageId) return message;
+              replacedPendingMessage = true;
+              return { ...message, content: assistantMessage };
+            });
+            if (replacedPendingMessage) return nextMessages;
+            return [...current, { id: `assistant-${Date.now()}`, role: "assistant", content: assistantMessage }];
+          });
+          if (pendingAssistantMessageIdRef.current === pendingAssistantMessageId) {
+            pendingAssistantMessageIdRef.current = null;
+            pendingAgentStartedAtRef.current = 0;
+          }
+        } else if (result?.status !== "waiting") {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === pendingAssistantMessageId
+                ? { ...message, content: "I couldn't finish that request. Please try again." }
+                : message
+            )
+          );
+          if (pendingAssistantMessageIdRef.current === pendingAssistantMessageId) {
+            pendingAssistantMessageIdRef.current = null;
+            pendingAgentStartedAtRef.current = 0;
+          }
         }
         applyScreenCommands(result?.screenCommands);
       } catch (error) {
         console.error("Dwella agent request failed", error);
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === pendingAssistantMessageId
+              ? { ...message, content: "I couldn't reach Dwella just now. Please try again." }
+              : message
+          )
+        );
+        if (pendingAssistantMessageIdRef.current === pendingAssistantMessageId) {
+          pendingAssistantMessageIdRef.current = null;
+          pendingAgentStartedAtRef.current = 0;
+        }
       } finally {
         setIsSending(false);
       }
     },
-    [activeArtifact, agentClient, applyScreenCommands, isSending, messages, thread.id, workspaceActions]
+    [activeArtifact, agentClient, applyScreenCommands, isAgentBusy, messages, thread.id, workspaceActions]
   );
 
   React.useEffect(() => {
@@ -858,11 +1174,17 @@ function AgentShell() {
       const currentWorkspace = workspaceRef.current;
       const activeDocument = currentWorkspace.documents.find((document) => document.id === currentWorkspace.activeDocumentId) ?? currentWorkspace.documents[0];
       if (!activeDocument) return;
-      const nextContent = appendDocumentText(activeDocument.content, edit.text);
-      workspaceActions.updateDocument(activeDocument.id, { content: nextContent });
+      workspaceActions.appendDocumentText(activeDocument.id, edit.text);
     },
     [workspaceActions]
   );
+
+  const addVoiceStatusMessage = React.useCallback((content) => {
+    setMessages((current) => [
+      ...current,
+      { id: createClientMessageId("voice-status"), role: "assistant", content },
+    ]);
+  }, []);
 
   const finishVoiceRecording = React.useCallback(
     async (audioBlob) => {
@@ -885,22 +1207,32 @@ function AgentShell() {
         }
       } catch (error) {
         console.error("Dwella voice transcription failed", error);
+        addVoiceStatusMessage("I couldn't turn that voice note into text just now. Please try again in a moment.");
       } finally {
         setIsVoiceProcessing(false);
       }
     },
-    [agentClient, appendVoiceEdit, applyScreenCommands, thread.id]
+    [addVoiceStatusMessage, agentClient, appendVoiceEdit, applyScreenCommands, thread.id]
   );
 
   const sendRealtimeEvent = React.useCallback((event) => {
     const channel = realtimeChannelRef.current;
     if (!channel || channel.readyState !== "open") return false;
-    channel.send(JSON.stringify(event));
-    return true;
+    try {
+      channel.send(JSON.stringify(event));
+      return true;
+    } catch (error) {
+      console.warn("Dwella realtime event could not be sent.", error);
+      return false;
+    }
   }, []);
 
   const stopVoiceLevelMonitor = React.useCallback(() => {
-    voiceLevelMonitorRef.current?.stop();
+    try {
+      voiceLevelMonitorRef.current?.stop();
+    } catch (error) {
+      console.warn("Dwella voice level monitor failed to stop cleanly.", error);
+    }
     voiceLevelMonitorRef.current = null;
     orbInputVolumeRef.current = 0;
     voiceWaveformBandsRef.current = Array.from({ length: 28 }, () => 0);
@@ -934,15 +1266,14 @@ function AgentShell() {
 
       if (name === "append_to_document") {
         if (!activeDocument) return { ok: false, error: "No document is available." };
-        const nextContent = appendDocumentText(activeDocument.content, args.text);
-        workspaceActions.updateDocument(activeDocument.id, { content: nextContent });
+        workspaceActions.appendDocumentText(activeDocument.id, args.text);
         openArtifact("doc");
         return { ok: true, artifact: "doc", documentId: activeDocument.id };
       }
 
       if (name === "replace_document") {
         if (!activeDocument) return { ok: false, error: "No document is available." };
-        workspaceActions.updateDocument(activeDocument.id, { content: String(args.text ?? "") });
+        workspaceActions.replaceDocumentText(activeDocument.id, args.text);
         openArtifact("doc");
         return { ok: true, artifact: "doc", documentId: activeDocument.id };
       }
@@ -1015,8 +1346,14 @@ function AgentShell() {
         args = {};
       }
 
-      const output = await executeRealtimeTool(toolCall.name, args);
-      sendRealtimeEvent({
+      let output;
+      try {
+        output = await executeRealtimeTool(toolCall.name, args);
+      } catch (error) {
+        console.error("Dwella realtime workspace tool failed", { tool: toolCall.name, error });
+        output = { ok: false, error: "Workspace action failed." };
+      }
+      const sentOutput = sendRealtimeEvent({
         type: "conversation.item.create",
         item: {
           type: "function_call_output",
@@ -1024,10 +1361,33 @@ function AgentShell() {
           output: JSON.stringify(output),
         },
       });
-      sendRealtimeEvent({ type: "response.create" });
+      if (sentOutput) sendRealtimeEvent({ type: "response.create" });
     },
     [executeRealtimeTool, sendRealtimeEvent]
   );
+
+  const updateRealtimeAssistantTranscript = React.useCallback((text, { replace = false, final = false } = {}) => {
+    const cleanText = String(text ?? "");
+    if (!cleanText) return;
+    const previousText = realtimeAssistantTextRef.current;
+    const nextText = replace ? cleanText.trim() : `${previousText}${cleanText}`;
+    if (!nextText.trim()) return;
+
+    const messageId = realtimeAssistantMessageIdRef.current ?? createClientMessageId("realtime-assistant");
+    realtimeAssistantMessageIdRef.current = final ? null : messageId;
+    realtimeAssistantTextRef.current = final ? "" : nextText;
+
+    setMessages((current) => {
+      let found = false;
+      const nextMessages = current.map((message) => {
+        if (message.id !== messageId) return message;
+        found = true;
+        return { ...message, content: nextText };
+      });
+      if (found) return nextMessages;
+      return [...current, { id: messageId, role: "assistant", content: nextText }];
+    });
+  }, []);
 
   const handleRealtimeEvent = React.useCallback(
     (event) => {
@@ -1040,10 +1400,25 @@ function AgentShell() {
         setMessages((current) => [...current, { id: `realtime-user-${Date.now()}`, role: "user", content: event.transcript }]);
       }
 
-      const assistantText = event.transcript || event.text;
-      if ((event.type === "response.audio_transcript.done" || event.type === "response.output_text.done") && assistantText) {
+      if (
+        (event.type === "response.audio_transcript.delta" ||
+          event.type === "response.output_text.delta" ||
+          event.type === "response.text.delta") &&
+        event.delta
+      ) {
         orbOutputVolumeRef.current = 0.85;
-        setMessages((current) => [...current, { id: `realtime-assistant-${Date.now()}`, role: "assistant", content: assistantText }]);
+        updateRealtimeAssistantTranscript(event.delta);
+      }
+
+      const assistantText = event.transcript || event.text;
+      if (
+        (event.type === "response.audio_transcript.done" ||
+          event.type === "response.output_text.done" ||
+          event.type === "response.text.done") &&
+        (assistantText || realtimeAssistantTextRef.current)
+      ) {
+        orbOutputVolumeRef.current = 0.85;
+        updateRealtimeAssistantTranscript(assistantText || realtimeAssistantTextRef.current, { replace: true, final: true });
       }
 
       if (event.type === "response.function_call_arguments.done") {
@@ -1058,7 +1433,7 @@ function AgentShell() {
         handleRealtimeToolCall(event.item);
       }
     },
-    [handleRealtimeToolCall]
+    [handleRealtimeToolCall, updateRealtimeAssistantTranscript]
   );
 
   const clearRealtimeDisconnectTimer = React.useCallback(() => {
@@ -1073,16 +1448,36 @@ function AgentShell() {
     clearRealtimeDisconnectTimer();
     const channel = realtimeChannelRef.current;
     realtimeChannelRef.current = null;
-    if (channel && channel.readyState !== "closed") channel.close();
+    try {
+      if (channel && channel.readyState !== "closed") channel.close();
+    } catch (error) {
+      console.warn("Dwella realtime data channel did not close cleanly.", error);
+    }
     const peer = realtimePeerRef.current;
     realtimePeerRef.current = null;
-    peer?.close();
-    realtimeStreamRef.current?.getTracks().forEach((track) => track.stop());
+    try {
+      peer?.close();
+    } catch (error) {
+      console.warn("Dwella realtime peer did not close cleanly.", error);
+    }
+    realtimeStreamRef.current?.getTracks().forEach((track) => {
+      try {
+        track.stop();
+      } catch {
+        // Some browsers can throw if the track is already ended.
+      }
+    });
     realtimeStreamRef.current = null;
-    realtimeAudioRef.current?.remove();
+    try {
+      realtimeAudioRef.current?.remove();
+    } catch {
+      // Removing an already detached audio node is harmless.
+    }
     realtimeAudioRef.current = null;
     stopVoiceLevelMonitor();
     realtimeToolCallsRef.current.clear();
+    realtimeAssistantMessageIdRef.current = null;
+    realtimeAssistantTextRef.current = "";
     setIsRealtimeConnecting(false);
     setIsRealtimeConnected(false);
     window.setTimeout(() => {
@@ -1095,6 +1490,7 @@ function AgentShell() {
   const startRealtimeSession = React.useCallback(async (approvedStream) => {
     if (!approvedStream || typeof RTCPeerConnection === "undefined") {
       console.error("Dwella realtime voice requires browser WebRTC microphone support.");
+      addVoiceStatusMessage("Live voice is not available in this browser, so I can only take a short voice note here.");
       return false;
     }
 
@@ -1106,6 +1502,7 @@ function AgentShell() {
       console.error("Dwella realtime voice session failed", error);
       setIsRealtimeConnecting(false);
       approvedStream.getTracks().forEach((track) => track.stop());
+      addVoiceStatusMessage("I couldn't start live voice just now. Please check that you're signed in and try again.");
       return "handled";
     }
     if (!session?.clientSecret) {
@@ -1113,6 +1510,7 @@ function AgentShell() {
       approvedStream.getTracks().forEach((track) => track.stop());
       applyScreenCommands(session?.screenCommands);
       console.error("Dwella realtime voice session did not return a client secret.");
+      addVoiceStatusMessage("I couldn't get a live voice session just now. Please try again in a moment.");
       return "handled";
     }
     applyScreenCommands(session?.screenCommands);
@@ -1225,119 +1623,158 @@ function AgentShell() {
         approvedStream.getTracks().forEach((track) => track.stop());
         disconnectRealtimeSession();
       }
+      addVoiceStatusMessage("Live voice couldn't connect just now. The workspace is still open, and you can try again.");
       return "handled";
     }
-  }, [agentClient, applyScreenCommands, clearRealtimeDisconnectTimer, disconnectRealtimeSession, handleRealtimeEvent, startVoiceLevelMonitor, thread.id]);
+  }, [addVoiceStatusMessage, agentClient, applyScreenCommands, clearRealtimeDisconnectTimer, disconnectRealtimeSession, handleRealtimeEvent, startVoiceLevelMonitor, thread.id]);
 
   React.useEffect(() => {
     const intervalId = window.setInterval(() => {
       orbOutputVolumeRef.current *= 0.82;
-      if (isSending || isVoiceProcessing) {
+      if (isAgentBusy || isVoiceProcessing) {
         orbOutputVolumeRef.current = Math.max(orbOutputVolumeRef.current, 0.22);
       }
     }, 80);
     return () => window.clearInterval(intervalId);
-  }, [isSending, isVoiceProcessing]);
+  }, [isAgentBusy, isVoiceProcessing]);
 
   const startVoice = async () => {
-    if (isRealtimeConnected || isRealtimeConnecting) {
-      disconnectRealtimeSession();
-      setMessages((current) => [
-        ...current,
-        { id: `realtime-stopped-${Date.now()}`, role: "assistant", content: "Live voice control is off." },
-      ]);
-      return;
-    }
-
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      return;
-    }
-
-    if (!navigator.mediaDevices?.getUserMedia) {
-      console.error("Dwella voice capture requires browser microphone support.");
-      return;
-    }
-
-    let approvedStream;
+    let approvedStream = null;
     try {
-      approvedStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (error) {
-      const failure = normalizeRealtimeStartError(createRealtimeStartError("microphone", error));
-      console.error(
-        `Dwella microphone permission failed: ${failure.name}: ${failure.message}`,
-        undefined
-      );
-      console.error("Dwella microphone permission failed", failure);
-      return;
-    }
+      if (isRealtimeConnected || isRealtimeConnecting) {
+        disconnectRealtimeSession();
+        setMessages((current) => [
+          ...current,
+          { id: createClientMessageId("realtime-stopped"), role: "assistant", content: "Live voice control is off." },
+        ]);
+        return;
+      }
 
-    const liveStarted = await startRealtimeSession(approvedStream);
-    if (liveStarted) return;
+      if (isRecording) {
+        try {
+          mediaRecorderRef.current?.stop();
+        } catch (error) {
+          console.warn("Dwella voice recorder did not stop cleanly.", error);
+          setIsRecording(false);
+          addVoiceStatusMessage("I stopped listening, but that voice note could not be saved.");
+        }
+        return;
+      }
 
-    if (typeof MediaRecorder === "undefined") {
-      approvedStream.getTracks().forEach((track) => track.stop());
-      console.error("Dwella voice notes require browser MediaRecorder support.");
-      return;
-    }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        console.error("Dwella voice capture requires browser microphone support.");
+        addVoiceStatusMessage("This browser cannot give Dwella microphone access. Please try Chrome or Safari with microphone permission allowed.");
+        return;
+      }
 
-    let session;
-    try {
-      session = await agentClient.createVoiceSession({ threadId: thread.id });
-    } catch (error) {
-      approvedStream.getTracks().forEach((track) => track.stop());
-      console.error("Dwella voice session failed", error);
-      return;
-    }
-    applyScreenCommands(session?.screenCommands);
+      try {
+        approvedStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (error) {
+        const failure = normalizeRealtimeStartError(createRealtimeStartError("microphone", error));
+        console.error(
+          `Dwella microphone permission failed: ${failure.name}: ${failure.message}`,
+          undefined
+        );
+        console.error("Dwella microphone permission failed", failure);
+        addVoiceStatusMessage("I couldn't access the microphone. Please allow microphone access, then try again.");
+        return;
+      }
 
-    try {
-      const stream = approvedStream;
-      voiceStreamRef.current = stream;
-      startVoiceLevelMonitor(stream);
-      voiceChunksRef.current = [];
-      const preferredType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
-      const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
-      mediaRecorderRef.current = recorder;
+      const liveStarted = await startRealtimeSession(approvedStream);
+      if (liveStarted) return;
 
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data.size > 0) voiceChunksRef.current.push(event.data);
-      });
-      recorder.addEventListener("stop", () => {
-        const audioBlob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+      if (typeof MediaRecorder === "undefined") {
+        approvedStream.getTracks().forEach((track) => track.stop());
+        console.error("Dwella voice notes require browser MediaRecorder support.");
+        addVoiceStatusMessage("This browser cannot record a voice note here. Please try Chrome or Safari.");
+        return;
+      }
+
+      let session;
+      try {
+        session = await agentClient.createVoiceSession({ threadId: thread.id });
+      } catch (error) {
+        approvedStream.getTracks().forEach((track) => track.stop());
+        console.error("Dwella voice session failed", error);
+        addVoiceStatusMessage("I couldn't prepare voice capture just now. Please make sure you're signed in and try again.");
+        return;
+      }
+      applyScreenCommands(session?.screenCommands);
+
+      try {
+        const stream = approvedStream;
+        voiceStreamRef.current = stream;
+        startVoiceLevelMonitor(stream);
         voiceChunksRef.current = [];
-        voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
-        voiceStreamRef.current = null;
-        stopVoiceLevelMonitor();
-        mediaRecorderRef.current = null;
-        setIsRecording(false);
-        finishVoiceRecording(audioBlob);
-      });
+        const preferredType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+        const recorder = new MediaRecorder(stream, preferredType ? { mimeType: preferredType } : undefined);
+        mediaRecorderRef.current = recorder;
 
-      recorder.start();
-      setIsRecording(true);
-    } catch {
-      approvedStream.getTracks().forEach((track) => track.stop());
+        recorder.addEventListener("dataavailable", (event) => {
+          if (event.data.size > 0) voiceChunksRef.current.push(event.data);
+        });
+        recorder.addEventListener("stop", () => {
+          const audioBlob = new Blob(voiceChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          voiceChunksRef.current = [];
+          voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+          voiceStreamRef.current = null;
+          stopVoiceLevelMonitor();
+          mediaRecorderRef.current = null;
+          setIsRecording(false);
+          finishVoiceRecording(audioBlob);
+        });
+
+        recorder.start();
+        setIsRecording(true);
+      } catch (error) {
+        approvedStream.getTracks().forEach((track) => track.stop());
+        stopVoiceLevelMonitor();
+        setIsRecording(false);
+        console.error("Dwella voice recorder failed to start.", error);
+        addVoiceStatusMessage("I couldn't start recording that voice note. Please try again.");
+      }
+    } catch (error) {
+      console.error("Dwella voice startup failed", error);
+      approvedStream?.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {
+          // The track may already have been stopped while unwinding the failed start.
+        }
+      });
+      disconnectRealtimeSession();
       stopVoiceLevelMonitor();
+      mediaRecorderRef.current = null;
+      voiceStreamRef.current = null;
       setIsRecording(false);
-      console.error("Dwella voice recorder failed to start.");
+      setIsRealtimeConnecting(false);
+      setIsRealtimeConnected(false);
+      setIsVoiceProcessing(false);
+      addVoiceStatusMessage("Voice hit a startup problem, but the workspace is still open. Please try again.");
     }
   };
 
   const stopVoiceControl = () => {
-    if (isRealtimeConnected || isRealtimeConnecting) {
-      disconnectRealtimeSession();
-      return;
-    }
+    try {
+      if (isRealtimeConnected || isRealtimeConnecting) {
+        disconnectRealtimeSession();
+        return;
+      }
 
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
+      if (isRecording) {
+        mediaRecorderRef.current?.stop();
+      }
+    } catch (error) {
+      console.warn("Dwella voice stop failed.", error);
+      disconnectRealtimeSession();
+      setIsRecording(false);
+      addVoiceStatusMessage("I stopped listening, but that voice session did not close cleanly.");
     }
   };
 
   const orbAgentState = isRealtimeConnected || isRecording
     ? "listening"
-    : isRealtimeConnecting || isSending || isVoiceProcessing
+    : isRealtimeConnecting || isAgentBusy || isVoiceProcessing
       ? "thinking"
       : null;
   const hasPromptText = prompt.trim().length > 0;
@@ -1354,6 +1791,13 @@ function AgentShell() {
   const openTextComposer = () => {
     setIsTextComposerOpen(true);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
+  const handlePromptKeyDown = (event) => {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent?.isComposing) return;
+    event.preventDefault();
+    if (!hasSendContent || isAgentBusy) return;
+    sendMessage(prompt, attachedFiles);
   };
 
   return (
@@ -1382,11 +1826,16 @@ function AgentShell() {
             </button>
           ))}
         </nav>
+        {!localAuthBypass && isSignedIn ? (
+          <div className="agent-rail__account">
+            <UserButton afterSignOutUrl="/" appearance={agentUserButtonAppearance} />
+          </div>
+        ) : null}
       </aside>
 
       <section className="agent-drawer" aria-label="Conversation drawer">
         <h1 className="sr-only">Dwella agent workspace</h1>
-        <AgentConversation messages={messages} isProcessing={isSending} />
+        <AgentConversation messages={messages} isProcessing={isAgentBusy} />
 
         <form className={showPromptWaveform ? "agent-prompt is-voice-mode" : "agent-prompt"} action="#" onSubmit={submitPrompt}>
           <label className="sr-only" htmlFor="agent-prompt-input">
@@ -1485,14 +1934,15 @@ function AgentShell() {
                     placeholder="Message Dwella..."
                     value={prompt}
                     onChange={(event) => setPrompt(event.target.value)}
+                    onKeyDown={handlePromptKeyDown}
                   />
                   {showSendButton ? (
                     <button
                       className={hasSendContent ? "agent-prompt__send is-ready" : "agent-prompt__send"}
                       type="submit"
-                      disabled={isSending || !hasSendContent}
-                      aria-label={isSending ? "Sending message" : "Send message"}
-                      title={isSending ? "Sending" : "Send"}
+                      disabled={isAgentBusy || !hasSendContent}
+                      aria-label={isAgentBusy ? "Sending message" : "Send message"}
+                      title={isAgentBusy ? "Sending" : "Send"}
                       style={{
                         "--agent-send-bg": hasSendContent ? "#282927" : "#f2f2ef",
                         "--agent-send-color": hasSendContent ? "rgba(255, 255, 255, 0.9)" : "rgba(24, 25, 24, 0.36)",
@@ -1582,6 +2032,10 @@ function AgentShell() {
 }
 
 function AgentAuthGate() {
+  if (localAuthBypass) {
+    return <AgentShell />;
+  }
+
   const { isLoaded, isSignedIn } = useDwellaAuth();
 
   React.useEffect(() => {
@@ -1599,32 +2053,7 @@ function AgentAuthGate() {
     return <AuthTransitionScreen label="Redirecting to sign in" />;
   }
 
-  return (
-    <>
-      <div className="agent-user-button">
-        <UserButton
-          afterSignOutUrl="/"
-          appearance={{
-            elements: {
-              avatarBox: {
-                width: "34px",
-                height: "34px",
-                borderRadius: "8px",
-                border: "1px solid rgba(24, 25, 24, 0.12)",
-                boxShadow: "0 8px 28px rgba(24, 25, 24, 0.08)",
-              },
-              userButtonPopoverCard: {
-                border: "1px solid rgba(24, 25, 24, 0.1)",
-                borderRadius: "8px",
-                boxShadow: "0 18px 60px rgba(31, 33, 31, 0.12)",
-              },
-            },
-          }}
-        />
-      </div>
-      <AgentShell />
-    </>
-  );
+  return <AgentShell />;
 }
 
 function SignInPage() {
@@ -1751,10 +2180,7 @@ function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact })
 
 function DocumentArtifact({ workspace, actions, openArtifact }) {
   const activeDocument = workspace.documents.find((document) => document.id === workspace.activeDocumentId) ?? workspace.documents[0];
-
-  const updateDocument = (patch) => {
-    actions.updateDocument(activeDocument.id, patch);
-  };
+  const [editorRetryKey, setEditorRetryKey] = React.useState(0);
 
   if (!activeDocument) {
     return (
@@ -1786,17 +2212,151 @@ function DocumentArtifact({ workspace, actions, openArtifact }) {
           className="document-title-input"
           aria-label="Document title"
           value={activeDocument.title}
-          onChange={(event) => updateDocument({ title: event.target.value || "Untitled document" })}
+          onChange={(event) => actions.updateDocument(activeDocument.id, { title: event.target.value || "Untitled document" })}
         />
-        <textarea
-          className="document-body-input"
-          aria-label="Document body"
-          value={activeDocument.content}
-          onChange={(event) => updateDocument({ content: event.target.value })}
-          placeholder="Start writing..."
-        />
+        <RichDocumentErrorBoundary
+          resetKey={`${activeDocument.id}:${editorRetryKey}`}
+          onRetry={() => setEditorRetryKey((key) => key + 1)}
+        >
+          {isConvexDocumentId(activeDocument.id) ? (
+            <SyncedRichDocumentEditor key={`${activeDocument.id}:${editorRetryKey}`} document={activeDocument} actions={actions} />
+          ) : (
+            <LocalRichDocumentEditor key={activeDocument.id} document={activeDocument} actions={actions} />
+          )}
+        </RichDocumentErrorBoundary>
       </div>
     </div>
+  );
+}
+
+class RichDocumentErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidUpdate(previousProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  componentDidCatch(error, info) {
+    console.error("Dwella rich document editor failed", error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return <RichDocumentSyncFallback onRetry={this.props.onRetry} />;
+    }
+    return this.props.children;
+  }
+}
+
+function RichDocumentSyncFallback({ onRetry }) {
+  return (
+    <div className="rich-document-error" role="status">
+      <p>Document sync paused for a moment.</p>
+      <button type="button" onClick={onRetry}>Try again</button>
+    </div>
+  );
+}
+
+function SyncedRichDocumentEditor({ document, actions }) {
+  const editorOptions = useBlockNoteEditorOptions(actions);
+  const sync = useBlockNoteSync(api.prosemirrorSync, String(document.id), {
+    snapshotDebounceMs: 900,
+    warnOnUnsyncedClose: true,
+    editorOptions,
+  });
+  const { create, editor, isLoading } = sync;
+
+  React.useEffect(() => {
+    if (isLoading || editor || !create) return;
+    let cancelled = false;
+    create(createProseMirrorDocumentFromText(document.content))
+      .catch((error) => {
+        if (!cancelled) {
+          console.warn("Dwella rich document initialization failed", error);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [create, document.content, editor, isLoading]);
+
+  React.useEffect(() => {
+    if (!editor) return undefined;
+    return editor.onChange(() => {
+      actions.updateDocument(document.id, { content: blockNoteBlocksToPlainText(editor.document) });
+    });
+  }, [actions, document.id, editor]);
+
+  if (isLoading || !editor) {
+    return <div className="rich-document-loading">Opening document...</div>;
+  }
+
+  return (
+    <div className="rich-document-surface">
+      <BlockNoteView editor={editor} theme="light" />
+    </div>
+  );
+}
+
+function LocalRichDocumentEditor({ document, actions }) {
+  const editorOptions = useBlockNoteEditorOptions(actions);
+  const editor = React.useMemo(
+    () =>
+      BlockNoteEditor.create({
+        ...editorOptions,
+        initialContent: createBlockNoteBlocksFromText(document.content),
+      }),
+    [document.id, editorOptions]
+  );
+  const latestEditorTextRef = React.useRef(String(document.content ?? ""));
+
+  React.useEffect(() => {
+    const nextContent = String(document.content ?? "");
+    const currentContent = blockNoteBlocksToPlainText(editor.document);
+    if (nextContent === latestEditorTextRef.current || nextContent === currentContent) {
+      latestEditorTextRef.current = nextContent;
+      return;
+    }
+    latestEditorTextRef.current = nextContent;
+    editor.replaceBlocks(editor.document, createBlockNoteBlocksFromText(nextContent));
+  }, [document.content, editor]);
+
+  React.useEffect(() => {
+    return editor.onChange(() => {
+      const content = blockNoteBlocksToPlainText(editor.document);
+      latestEditorTextRef.current = content;
+      actions.updateDocument(document.id, { content });
+    });
+  }, [actions, document.id, editor]);
+
+  return (
+    <div className="rich-document-surface">
+      <BlockNoteView editor={editor} theme="light" />
+    </div>
+  );
+}
+
+function useBlockNoteEditorOptions(actions) {
+  return React.useMemo(
+    () => ({
+      uploadFile: (file) => actions.uploadDocumentAsset(file),
+      tables: {
+        splitCells: true,
+        cellBackgroundColor: true,
+        cellTextColor: true,
+        headers: true,
+      },
+    }),
+    [actions]
   );
 }
 
@@ -1994,7 +2554,7 @@ function DocumentFileIllustration({ fileName, isScanning }) {
 
   const extension = getFileExtension(fileName);
   if (extension === "pdf") return <DocumentPdfIllustration className="file-document-illustration" />;
-  if (extension === "doc" || extension === "docx") return <DocumentDocxIllustration className="file-document-illustration" />;
+  if (extension === "doc" || extension === "docx" || extension === "dwella") return <DocumentDocxIllustration className="file-document-illustration" />;
   if (extension === "txt" || extension === "md") return <DocumentTxtIllustration className="file-document-illustration" />;
   if (["gif", "heic", "jpeg", "jpg", "png", "svg", "webp"].includes(extension)) {
     return <DocumentImgIllustration className="file-document-illustration" />;
@@ -2029,7 +2589,7 @@ function createLocalDocument(current, title = "Untitled document", content = "")
       {
         id: `file-${now}`,
         folderId: "documents",
-        name: `${documentTitle}.md`,
+        name: createRichDocumentFilename(documentTitle),
         type: "document",
         documentId: document.id,
         updatedAt: now,
@@ -2095,6 +2655,7 @@ function isReusableDocumentFile(fileName) {
     "css",
     "doc",
     "docx",
+    "dwella",
     "gif",
     "gz",
     "heic",
@@ -2116,6 +2677,10 @@ function isReusableDocumentFile(fileName) {
     "webp",
     "zip",
   ].includes(getFileExtension(fileName));
+}
+
+function createRichDocumentFilename(title) {
+  return `${String(title || "Untitled document").trim() || "Untitled document"}.dwella`;
 }
 
 function loadWorkspace(threadId) {
@@ -2217,7 +2782,7 @@ function createInitialWorkspace() {
       { id: "documents", name: "Documents", parentId: "root", createdAt: now },
     ],
     files: [
-      { id: `file-${now}`, folderId: "documents", name: `${document.title}.md`, type: "document", documentId: document.id, updatedAt: now },
+      { id: `file-${now}`, folderId: "documents", name: createRichDocumentFilename(document.title), type: "document", documentId: document.id, updatedAt: now },
     ],
     map: { center: defaultMapCenter(), zoom: 12, markers: [] },
     browser: { url: "about:blank" },
@@ -2238,7 +2803,7 @@ function normalizeWorkspace(saved) {
 }
 
 function ensureDocumentFile(files, documentId, title) {
-  const name = `${title || "Untitled document"}.md`;
+  const name = createRichDocumentFilename(title || "Untitled document");
   if (!files.some((file) => file.documentId === documentId)) {
     return [...files, { id: `file-${Date.now()}`, folderId: "documents", name, type: "document", documentId, updatedAt: Date.now() }];
   }

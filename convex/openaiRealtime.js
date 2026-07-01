@@ -1,13 +1,18 @@
 export const OPENAI_REALTIME_MODEL = "gpt-realtime-2";
 export const OPENAI_REALTIME_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
 
-export function buildDwellaRealtimeSessionConfig({ instructions, tools }) {
+export function buildDwellaRealtimeSessionConfig({
+  instructions,
+  tools,
+  transcriptionModel = "gpt-4o-transcribe",
+}) {
   return {
     type: "realtime",
     model: OPENAI_REALTIME_MODEL,
     instructions,
     tools,
     tool_choice: "auto",
+    parallel_tool_calls: false,
     reasoning: { effort: "low" },
     audio: {
       input: {
@@ -19,7 +24,7 @@ export function buildDwellaRealtimeSessionConfig({ instructions, tools }) {
           create_response: true,
           interrupt_response: true,
         },
-        transcription: { model: "gpt-4o-transcribe" },
+        transcription: { model: transcriptionModel },
       },
       output: { voice: "marin" },
     },
@@ -30,8 +35,10 @@ export async function createOpenAIRealtimeClientSecret({
   apiKey,
   instructions,
   tools,
+  transcriptionModel,
   safetyIdentifier = "dwella-demo-user",
   fetcher = fetch,
+  timeoutMs = 10_000,
 }) {
   if (!apiKey) {
     return {
@@ -42,24 +49,38 @@ export async function createOpenAIRealtimeClientSecret({
   }
 
   let response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     response = await fetcher(OPENAI_REALTIME_CLIENT_SECRETS_URL, {
       method: "POST",
+      signal: controller.signal,
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "OpenAI-Safety-Identifier": safetyIdentifier,
       },
       body: JSON.stringify({
-        session: buildDwellaRealtimeSessionConfig({ instructions, tools }),
+        session: buildDwellaRealtimeSessionConfig({
+          instructions,
+          tools,
+          transcriptionModel,
+        }),
       }),
     });
   } catch (error) {
     return {
       ok: false,
       status: 0,
-      error: error instanceof Error ? error.message : "OpenAI Realtime request failed before a response was received.",
+      error:
+        error instanceof Error && error.name === "AbortError"
+          ? `OpenAI Realtime request timed out after ${timeoutMs}ms.`
+          : error instanceof Error
+            ? error.message
+            : "OpenAI Realtime request failed before a response was received.",
     };
+  } finally {
+    clearTimeout(timeout);
   }
 
   const data = await parseResponseJson(response);

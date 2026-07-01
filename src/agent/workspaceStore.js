@@ -16,6 +16,12 @@ export function createAgentWorkspaceStore(client) {
     updateDocument(threadId, documentId, patch) {
       return client.mutation(api.agentWorkspace.updateDocument, { threadId, documentId, ...patch });
     },
+    appendDocumentText(threadId, documentId, text) {
+      return client.mutation(api.agentWorkspace.appendDocumentText, { threadId, documentId, text });
+    },
+    replaceDocumentText(threadId, documentId, text) {
+      return client.mutation(api.agentWorkspace.replaceDocumentText, { threadId, documentId, text });
+    },
     setActiveDocument(threadId, documentId) {
       return client.mutation(api.agentWorkspace.setActiveDocument, { threadId, documentId });
     },
@@ -53,6 +59,26 @@ export function createAgentWorkspaceStore(client) {
     },
     updateBrowserUrl(threadId, url) {
       return client.mutation(api.agentWorkspace.updateBrowserUrl, { threadId, url });
+    },
+    async uploadDocumentAsset(threadId, file) {
+      const uploadUrl = await client.mutation(api.agentWorkspace.generateDocumentAssetUploadUrl, { threadId });
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+      });
+      if (!uploadResponse.ok) {
+        throw new Error("Document asset upload failed.");
+      }
+      const { storageId } = await uploadResponse.json();
+      const result = await client.mutation(api.agentWorkspace.registerDocumentAsset, {
+        threadId,
+        storageId,
+        name: file.name || "Document image",
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+      });
+      return result;
     },
   };
 }
