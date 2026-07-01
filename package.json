@@ -67,6 +67,7 @@
     "verify:realtime": "node scripts/verify-openai-realtime.mjs",
     "eve:info": "eve info",
     "eve:dev": "eve dev --no-ui --host 127.0.0.1 --port 3000",
+    "eve:e2e": "npm run eve:build && node scripts/start-eve-e2e.mjs",
     "eve:build": "node scripts/patch-nf3-nft-interop.mjs && eve build",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1"
