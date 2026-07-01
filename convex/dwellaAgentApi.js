@@ -136,6 +136,15 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, a
         handler: internal.dwellaAgentTools.createConceptVisuals,
         retry: true,
       }),
+      show_concept_in_color: createActionTool({
+        description:
+          "Colour a concept direction in the gallery: turns its black-and-white sketch into a realistic colour render with identical geometry. Use when the user asks to see a concept in colour or more realistically.",
+        args: z.object({
+          conceptName: z.string().optional().describe("Name of the concept to colour; omit for the latest one"),
+        }),
+        handler: internal.dwellaAgentTools.showConceptInColor,
+        retry: true,
+      }),
       request_builder_outreach_approval: createActionTool({
         description: "Record that builder outreach needs explicit approval before any external contact.",
         args: z.object({

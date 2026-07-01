@@ -118,28 +118,124 @@ export const renderConceptImages = internalAction({
     const option = await ctx.runQuery(internal.conceptDesigner.getOptionForRender, { optionId: args.optionId });
     if (!option) return null;
 
-    const [heroResult, sketchResult] = await Promise.allSettled([
-      generateImage({ prompt: buildHeroPrompt(option), apiKey: env.OPENAI_API_KEY }),
-      generateImage({ prompt: buildSketchPrompt(option), apiKey: env.OPENAI_API_KEY }),
-    ]);
+    // Sketch-first: the fast black-and-white presentation sketch is the primary visual.
+    // The colour render is derived from it later, on request, so the two always match.
+    const patch = { updatedAt: Date.now() };
+    try {
+      const sketch = await generateImage({ prompt: buildSketchPrompt(option), apiKey: env.OPENAI_API_KEY });
+      patch.sketchImageId = await ctx.storage.store(sketch);
+      patch.status = "ready";
+    } catch (error) {
+      patch.status = "failed";
+      patch.error = "The concept sketch could not be rendered this time.";
+      console.error("Dwella concept sketch failed", {
+        optionId: String(args.optionId),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    await ctx.runMutation(internal.conceptDesigner.updateOption, { optionId: args.optionId, patch });
+    return null;
+  },
+});
+
+export const renderConceptColor = action({
+  args: {
+    threadId: v.string(),
+    optionId: v.optional(v.id("agentConceptOptions")),
+    conceptName: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.tokenIdentifier) {
+      throw new Error("Not authenticated");
+    }
+
+    const optionId = await ctx.runMutation(internal.conceptDesigner.markOptionForColor, {
+      threadId: cleanText(args.threadId).slice(0, 160),
+      ownerTokenIdentifier: identity.tokenIdentifier,
+      optionId: args.optionId,
+      conceptName: cleanText(args.conceptName).slice(0, 160),
+    });
+    if (optionId) {
+      await ctx.scheduler.runAfter(0, internal.conceptDesigner.renderColorImage, { optionId });
+    }
+    return null;
+  },
+});
+
+export const markOptionForColor = internalMutation({
+  args: {
+    threadId: v.string(),
+    ownerTokenIdentifier: v.string(),
+    optionId: v.optional(v.id("agentConceptOptions")),
+    conceptName: v.optional(v.string()),
+  },
+  returns: v.union(v.id("agentConceptOptions"), v.null()),
+  handler: async (ctx, args) => {
+    let option = null;
+    if (args.optionId) {
+      const candidate = await ctx.db.get(args.optionId);
+      if (
+        candidate &&
+        candidate.ownerTokenIdentifier === args.ownerTokenIdentifier &&
+        candidate.threadId === args.threadId
+      ) {
+        option = candidate;
+      }
+    } else {
+      const options = await ctx.db
+        .query("agentConceptOptions")
+        .withIndex("by_ownerTokenIdentifier_and_threadId", (q) =>
+          q.eq("ownerTokenIdentifier", args.ownerTokenIdentifier).eq("threadId", args.threadId)
+        )
+        .order("desc")
+        .take(MAX_CONCEPTS * 2);
+      const wanted = args.conceptName?.toLowerCase() ?? "";
+      option =
+        (wanted &&
+          options.find(
+            (candidate) =>
+              candidate.name.toLowerCase().includes(wanted) || wanted.includes(candidate.name.toLowerCase())
+          )) ||
+        options[0] ||
+        null;
+    }
+
+    if (!option || option.status !== "ready" || option.colorStatus === "rendering") return null;
+    await ctx.db.patch(option._id, { colorStatus: "rendering", updatedAt: Date.now() });
+    return option._id;
+  },
+});
+
+export const renderColorImage = internalAction({
+  args: { optionId: v.id("agentConceptOptions") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const option = await ctx.runQuery(internal.conceptDesigner.getOptionForRender, { optionId: args.optionId });
+    if (!option) return null;
 
     const patch = { updatedAt: Date.now() };
-    if (heroResult.status === "fulfilled") {
-      patch.heroImageId = await ctx.storage.store(heroResult.value);
-    }
-    if (sketchResult.status === "fulfilled") {
-      patch.sketchImageId = await ctx.storage.store(sketchResult.value);
-    }
-
-    if (patch.heroImageId || patch.sketchImageId) {
-      patch.status = "ready";
-    } else {
-      patch.status = "failed";
-      patch.error = "The concept imagery could not be rendered this time.";
-      const reason = heroResult.status === "rejected" ? heroResult.reason : sketchResult.reason;
-      console.error("Dwella concept render failed", {
+    try {
+      let image;
+      const sketchBlob = option.sketchImageId ? await ctx.storage.get(option.sketchImageId) : null;
+      if (sketchBlob) {
+        image = await colorizeImage({
+          image: sketchBlob,
+          prompt: buildColorizePrompt(option),
+          apiKey: env.OPENAI_API_KEY,
+        });
+      } else {
+        image = await generateImage({ prompt: buildHeroPrompt(option), apiKey: env.OPENAI_API_KEY });
+      }
+      patch.heroImageId = await ctx.storage.store(image);
+      patch.colorStatus = "ready";
+    } catch (error) {
+      patch.colorStatus = "failed";
+      console.error("Dwella concept colour render failed", {
         optionId: String(args.optionId),
-        error: reason instanceof Error ? reason.message : String(reason),
+        error: error instanceof Error ? error.message : String(error),
       });
     }
 
@@ -161,6 +257,7 @@ export const updateOption = internalMutation({
     optionId: v.id("agentConceptOptions"),
     patch: v.object({
       status: v.optional(v.union(v.literal("rendering"), v.literal("ready"), v.literal("failed"))),
+      colorStatus: v.optional(v.union(v.literal("rendering"), v.literal("ready"), v.literal("failed"))),
       heroImageId: v.optional(v.id("_storage")),
       sketchImageId: v.optional(v.id("_storage")),
       error: v.optional(v.string()),
@@ -212,6 +309,7 @@ export const listThreadConcepts = query({
         rationale: option.rationale ?? "",
         riskFlags: option.riskFlags ?? [],
         status: option.status,
+        colorStatus: option.colorStatus ?? null,
         error: option.error ?? "",
         heroImageUrl: option.heroImageId ? await ctx.storage.getUrl(option.heroImageId) : null,
         sketchImageUrl: option.sketchImageId ? await ctx.storage.getUrl(option.sketchImageId) : null,
@@ -267,6 +365,57 @@ async function generateImage({ prompt, apiKey }) {
     bytes[index] = binary.charCodeAt(index);
   }
   return new Blob([bytes], { type: "image/png" });
+}
+
+async function colorizeImage({ image, prompt, apiKey }) {
+  const form = new FormData();
+  form.append("model", env.OPENAI_IMAGE_MODEL ?? "gpt-image-2");
+  form.append("image", image, "concept-sketch.png");
+  form.append("prompt", prompt);
+  form.append("size", "1536x1024");
+  form.append("quality", "medium");
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error?.message ?? `Image colourise failed with status ${response.status}.`);
+  }
+  const b64 = data?.data?.[0]?.b64_json;
+  if (!b64) {
+    throw new Error("Image colourise returned no image data.");
+  }
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: "image/png" });
+}
+
+function buildColorizePrompt(option) {
+  return [
+    "Turn this exact architectural elevation sketch into a realistic exterior render of an Australian custom home.",
+    "Keep the geometry identical: same proportions, storeys, roofline, window and door positions, and massing exactly as drawn. Do not add or remove any building elements.",
+    `Apply these materials: ${option.materials.join(", ")}.`,
+    option.style ? `Overall feel: ${option.style}.` : "",
+    "Natural Australian daylight, realistic soft landscaping in the foreground, plausible Australian setting.",
+    "No text, no signage, no logos, no watermarks, no people.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function buildHeroPrompt(option) {

@@ -193,6 +193,22 @@ export const createConceptVisuals = internalAction({
   },
 });
 
+export const showConceptInColor = internalAction({
+  args: { conceptName: v.optional(v.string()) },
+  returns: v.any(),
+  handler: async (_ctx, args) => {
+    const conceptName = cleanText(args.conceptName, "the latest concept");
+    return commandResult(`Started colouring ${conceptName} in the concept gallery.`, [
+      {
+        type: "render_concept_color",
+        target: "concepts",
+        payload: { conceptName: cleanOptionalText(args.conceptName) ?? "" },
+      },
+      openArtifact("concepts", "show_concept_in_color"),
+    ]);
+  },
+});
+
 export const requestBuilderOutreachApproval = internalAction({
   args: {
     builderName: v.optional(v.string()),

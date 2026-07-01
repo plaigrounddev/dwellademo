@@ -73,6 +73,13 @@ export function createAgentWorkspaceStore(client) {
       if (brief) args.brief = brief;
       return client.action(api.conceptDesigner.generateConceptPackage, args);
     },
+    renderConceptColor(threadId, { optionId, conceptName } = {}) {
+      const args = { threadId };
+      if (optionId) args.optionId = optionId;
+      const cleanName = String(conceptName ?? "").trim();
+      if (!optionId && cleanName) args.conceptName = cleanName;
+      return client.action(api.conceptDesigner.renderConceptColor, args);
+    },
     async uploadDocumentAsset(threadId, file) {
       const uploadUrl = await client.mutation(api.agentWorkspace.generateDocumentAssetUploadUrl, { threadId });
       const uploadResponse = await fetch(uploadUrl, {

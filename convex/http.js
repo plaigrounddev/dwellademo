@@ -509,6 +509,18 @@ function realtimeWorkspaceTools() {
     },
     {
       type: "function",
+      name: "show_concept_in_color",
+      description:
+        "Colour a concept direction in the gallery: turns its black-and-white sketch into a realistic colour render with identical geometry. Use when the user asks to see a concept in colour.",
+      parameters: {
+        type: "object",
+        properties: {
+          conceptName: { type: "string", description: "Name of the concept to colour; omit for the latest one" },
+        },
+      },
+    },
+    {
+      type: "function",
       name: "create_concept_visuals",
       description:
         "Turn the user's dream-home brief into 2 to 4 distinct visual concept directions rendered into the concept gallery. Design the concepts yourself first: distinct names, styles, storeys, roof forms, real generic materials (never invented brands), and honest risk flags.",

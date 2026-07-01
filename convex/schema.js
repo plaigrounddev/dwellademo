@@ -93,6 +93,7 @@ export default defineSchema({
     rationale: v.optional(v.string()),
     riskFlags: v.optional(v.array(v.string())),
     status: v.union(v.literal("rendering"), v.literal("ready"), v.literal("failed")),
+    colorStatus: v.optional(v.union(v.literal("rendering"), v.literal("ready"), v.literal("failed"))),
     heroImageId: v.optional(v.id("_storage")),
     sketchImageId: v.optional(v.id("_storage")),
     error: v.optional(v.string()),

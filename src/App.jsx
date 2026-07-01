@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import L from "leaflet";
-import { ArrowUp, CirclePlus, Files, FileText, Home, Images, Map, MessageCircle, Mic, PanelsTopLeft, SquarePen, X } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, CirclePlus, Files, FileText, Home, Images, Map, MessageCircle, Mic, PanelsTopLeft, SquarePen, X } from "lucide-react";
 import { SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import { useThreadMessages } from "convex-durable-agents/react";
@@ -999,6 +999,16 @@ function AgentShell() {
     [agentWorkspaceStore, thread.id]
   );
 
+  const requestConceptColorFromCommand = React.useCallback(
+    (payload = {}) => {
+      if (!agentWorkspaceStore) return;
+      agentWorkspaceStore
+        .renderConceptColor(thread.id, { conceptName: payload.conceptName })
+        .catch((error) => console.error("Dwella concept colour request failed", error));
+    },
+    [agentWorkspaceStore, thread.id]
+  );
+
   const applyScreenCommands = React.useCallback(
     (commands = []) => {
       if (!Array.isArray(commands)) return;
@@ -1054,6 +1064,10 @@ function AgentShell() {
           generateConceptsFromCommand(command.payload);
         }
 
+        if (command?.type === "render_concept_color") {
+          requestConceptColorFromCommand(command.payload);
+        }
+
         if (command?.type === "add_map_marker") {
           const marker = command.payload?.marker ?? command.payload;
           if (isFiniteNumber(marker?.lat) && isFiniteNumber(marker?.lng)) {
@@ -1077,7 +1091,7 @@ function AgentShell() {
         }
       }
     },
-    [exportDocumentForUser, generateConceptsFromCommand, workspaceActions]
+    [exportDocumentForUser, generateConceptsFromCommand, requestConceptColorFromCommand, workspaceActions]
   );
 
   const sendMessage = React.useCallback(
@@ -1391,13 +1405,24 @@ function AgentShell() {
           ok: true,
           artifact: "concepts",
           status: "rendering",
-          message: "The concepts are rendering into the concept gallery now.",
+          message: "The concept sketches are rendering into the gallery now.",
+        };
+      }
+
+      if (name === "show_concept_in_color") {
+        requestConceptColorFromCommand(args);
+        openArtifact("concepts");
+        return {
+          ok: true,
+          artifact: "concepts",
+          status: "rendering",
+          message: "The colour render is on its way in the gallery.",
         };
       }
 
       return { ok: false, error: `Unknown tool: ${name}` };
     },
-    [exportDocumentForUser, generateConceptsFromCommand, openArtifact, workspaceActions]
+    [exportDocumentForUser, generateConceptsFromCommand, openArtifact, requestConceptColorFromCommand, workspaceActions]
   );
 
   const handleRealtimeToolCall = React.useCallback(
@@ -2102,6 +2127,7 @@ function AgentShell() {
             actions={workspaceActions}
             openArtifact={openArtifact}
             threadId={thread.id}
+            conceptStore={agentWorkspaceStore}
           />
         </div>
       </section>
@@ -2240,7 +2266,7 @@ function AuthTransitionScreen({ label }) {
   return <main className="agent-auth-gate" aria-label={label} />;
 }
 
-function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact, threadId }) {
+function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact, threadId, conceptStore }) {
   if (activeArtifact === "doc") {
     return <DocumentArtifact workspace={workspace} actions={actions} openArtifact={openArtifact} />;
   }
@@ -2254,13 +2280,13 @@ function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact, t
   }
 
   if (activeArtifact === "concepts") {
-    return <ConceptsArtifact threadId={threadId} />;
+    return <ConceptsArtifact threadId={threadId} conceptStore={conceptStore} />;
   }
 
   return <DocumentArtifact workspace={workspace} actions={actions} openArtifact={openArtifact} />;
 }
 
-function ConceptsArtifact({ threadId }) {
+function ConceptsArtifact({ threadId, conceptStore }) {
   if (localAuthBypass) {
     return (
       <div className="artifact-empty">
@@ -2268,47 +2294,187 @@ function ConceptsArtifact({ threadId }) {
       </div>
     );
   }
-  return <ConvexConceptsArtifact threadId={threadId} />;
+  return <ConvexConceptsArtifact threadId={threadId} conceptStore={conceptStore} />;
 }
 
-function ConvexConceptsArtifact({ threadId }) {
+function ConvexConceptsArtifact({ threadId, conceptStore }) {
   const conceptData = useQuery(api.conceptDesigner.listThreadConcepts, { threadId });
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [sketchPreference, setSketchPreference] = React.useState({});
+
+  const concepts = conceptData?.concepts ?? [];
+  const conceptCount = concepts.length;
+  const safeIndex = Math.min(activeIndex, Math.max(0, conceptCount - 1));
+  const concept = concepts[safeIndex];
+
+  React.useEffect(() => {
+    if (activeIndex !== safeIndex) setActiveIndex(safeIndex);
+  }, [activeIndex, safeIndex]);
+
+  const goTo = (index) => {
+    setActiveIndex(Math.max(0, Math.min(conceptCount - 1, index)));
+    setDetailsOpen(false);
+  };
 
   if (conceptData === undefined) {
-    return (
-      <div className="artifact-concepts artifact-concepts--empty">
-        <p>Opening the concept gallery...</p>
-      </div>
-    );
+    return <div className="artifact-concepts artifact-concepts--empty" aria-live="polite" />;
   }
 
-  if (!conceptData || !conceptData.concepts.length) {
+  if (!concept) {
     return (
       <div className="artifact-concepts artifact-concepts--empty">
         <h3>Nothing here yet, and that's the fun part.</h3>
-        <p>Describe your dream home in the conversation and Dwella will sketch a few directions you can scroll through here.</p>
+        <p>Describe your dream home in the conversation and Dwella will sketch it into this space.</p>
       </div>
     );
   }
 
+  const wantsSketch = Boolean(sketchPreference[concept.id]);
+  const showColor = Boolean(concept.heroImageUrl) && !wantsSketch;
+  const displayedImage = showColor ? concept.heroImageUrl : concept.sketchImageUrl;
+  const isColoring = concept.colorStatus === "rendering";
+
+  const requestColor = () => {
+    setSketchPreference((current) => ({ ...current, [concept.id]: false }));
+    conceptStore
+      ?.renderConceptColor(threadId, { optionId: concept.id })
+      .catch((error) => console.error("Dwella concept colour request failed", error));
+  };
+
   return (
-    <div className="artifact-concepts">
-      <header className="artifact-concepts__header">
-        <h3>{conceptData.briefSummary}</h3>
-      </header>
-      <div className="concept-card-list">
-        {conceptData.concepts.map((concept) => (
-          <ConceptCard concept={concept} key={concept.id} />
-        ))}
+    <div className="artifact-concepts artifact-concepts--stage">
+      <div className="concept-stage">
+        {conceptCount > 1 ? (
+          <button
+            className="concept-stage__arrow"
+            type="button"
+            aria-label="Previous concept"
+            disabled={safeIndex === 0}
+            onClick={() => goTo(safeIndex - 1)}
+          >
+            <ChevronLeft aria-hidden="true" />
+          </button>
+        ) : null}
+        <figure className="concept-stage__frame">
+          {displayedImage ? (
+            <img
+              className={isColoring ? "concept-stage__image is-coloring" : "concept-stage__image"}
+              src={displayedImage}
+              alt={showColor ? `${concept.name} colour concept render` : `${concept.name} concept sketch`}
+            />
+          ) : concept.status === "failed" ? (
+            <div className="concept-stage__fallback">
+              <span>{concept.error || "This sketch couldn't be rendered. Ask Dwella to try again."}</span>
+            </div>
+          ) : (
+            <ConceptStageSkeleton />
+          )}
+          {isColoring ? (
+            <div className="concept-stage__coloring" aria-live="polite">
+              <Diamond className="concept-stage__coloring-diamond" />
+              <span>Painting it in...</span>
+            </div>
+          ) : null}
+        </figure>
+        {conceptCount > 1 ? (
+          <button
+            className="concept-stage__arrow"
+            type="button"
+            aria-label="Next concept"
+            disabled={safeIndex === conceptCount - 1}
+            onClick={() => goTo(safeIndex + 1)}
+          >
+            <ChevronRight aria-hidden="true" />
+          </button>
+        ) : null}
       </div>
-      <p className="concept-disclaimer">{conceptData.disclaimer}</p>
+
+      <div className="concept-stage__caption">
+        <h3>{concept.name}</h3>
+        <p>{concept.summary}</p>
+      </div>
+
+      <div className="concept-stage__actions">
+        {concept.sketchImageUrl && !concept.heroImageUrl && !isColoring ? (
+          <button className="concept-stage__action concept-stage__action--primary" type="button" onClick={requestColor}>
+            See it in colour
+          </button>
+        ) : null}
+        {concept.heroImageUrl && concept.sketchImageUrl ? (
+          <div className="concept-stage__toggle" role="group" aria-label="Sketch or colour view">
+            <button
+              className={wantsSketch ? "is-active" : ""}
+              type="button"
+              onClick={() => setSketchPreference((current) => ({ ...current, [concept.id]: true }))}
+            >
+              Sketch
+            </button>
+            <button
+              className={wantsSketch ? "" : "is-active"}
+              type="button"
+              onClick={() => setSketchPreference((current) => ({ ...current, [concept.id]: false }))}
+            >
+              Colour
+            </button>
+          </div>
+        ) : null}
+        <button
+          className="concept-stage__action"
+          type="button"
+          aria-expanded={detailsOpen}
+          onClick={() => setDetailsOpen((open) => !open)}
+        >
+          {detailsOpen ? "Hide details" : "Details"}
+        </button>
+      </div>
+
+      {conceptCount > 1 ? (
+        <div className="concept-stage__dots" role="tablist" aria-label="Concept directions">
+          {concepts.map((item, index) => (
+            <button
+              className={index === safeIndex ? "is-active" : ""}
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={index === safeIndex}
+              aria-label={item.name}
+              onClick={() => goTo(index)}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {detailsOpen ? (
+        <div className="concept-stage__details">
+          {concept.keyIdea ? <p className="concept-stage__idea">{concept.keyIdea}</p> : null}
+          <div className="concept-stage__meta">
+            <span>{concept.storeys === 1 ? "Single storey" : `${concept.storeys} storeys`}</span>
+            {concept.bedrooms ? <span>{concept.bedrooms} bed</span> : null}
+            {concept.bathrooms ? <span>{concept.bathrooms} bath</span> : null}
+            {concept.roofForm ? <span>{concept.roofForm}</span> : null}
+            {concept.materials.map((material) => (
+              <span key={material}>{material}</span>
+            ))}
+          </div>
+          {concept.rationale ? <p>{concept.rationale}</p> : null}
+          {concept.riskFlags.length ? (
+            <ul aria-label="Things still to verify">
+              {concept.riskFlags.map((flag) => (
+                <li key={flag}>{flag}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="concept-disclaimer">{conceptData.disclaimer}</p>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function ConceptImageSkeleton({ label }) {
+function ConceptStageSkeleton() {
   return (
-    <div className="concept-skeleton" aria-live="polite" aria-label={`${label} rendering`}>
+    <div className="concept-skeleton" aria-live="polite" aria-label="Concept sketch rendering">
       <div className="concept-skeleton__canvas">
         <span className="concept-skeleton__roof" />
         <span className="concept-skeleton__wall" />
@@ -2316,63 +2482,9 @@ function ConceptImageSkeleton({ label }) {
       </div>
       <div className="concept-skeleton__caption">
         <Diamond className="concept-skeleton__diamond" />
-        <span>{label}</span>
+        <span>Sketching...</span>
       </div>
     </div>
-  );
-}
-
-function ConceptCard({ concept }) {
-  const images = [
-    concept.heroImageUrl ? { key: "hero", url: concept.heroImageUrl, label: `${concept.name} exterior concept render` } : null,
-    concept.sketchImageUrl ? { key: "sketch", url: concept.sketchImageUrl, label: `${concept.name} elevation sketch` } : null,
-  ].filter(Boolean);
-
-  return (
-    <article className="concept-card" aria-label={concept.name}>
-      <div className="concept-card__gallery" role="group" aria-label={`${concept.name} imagery`}>
-        {images.map((image) => (
-          <img className="concept-card__image" key={image.key} src={image.url} alt={image.label} loading="lazy" />
-        ))}
-        {concept.status === "rendering" ? (
-          <>
-            {!concept.heroImageUrl ? <ConceptImageSkeleton label="Exterior render" /> : null}
-            {!concept.sketchImageUrl ? <ConceptImageSkeleton label="Concept sketch" /> : null}
-          </>
-        ) : null}
-        {concept.status === "failed" && !images.length ? (
-          <div className="concept-card__placeholder concept-card__placeholder--failed">
-            <span>{concept.error || "This concept's imagery couldn't be rendered."}</span>
-          </div>
-        ) : null}
-      </div>
-      <div className="concept-card__body">
-        <h4>{concept.name}</h4>
-        <p className="concept-card__summary">{concept.summary}</p>
-        {concept.keyIdea ? <p className="concept-card__idea">{concept.keyIdea}</p> : null}
-        <div className="concept-card__meta">
-          <span>{concept.storeys === 1 ? "Single storey" : `${concept.storeys} storeys`}</span>
-          {concept.bedrooms ? <span>{concept.bedrooms} bed</span> : null}
-          {concept.bathrooms ? <span>{concept.bathrooms} bath</span> : null}
-          {concept.roofForm ? <span>{concept.roofForm}</span> : null}
-        </div>
-        {concept.materials.length ? (
-          <div className="concept-card__materials" aria-label="Concept materials">
-            {concept.materials.map((material) => (
-              <span key={material}>{material}</span>
-            ))}
-          </div>
-        ) : null}
-        {concept.rationale ? <p className="concept-card__rationale">{concept.rationale}</p> : null}
-        {concept.riskFlags.length ? (
-          <ul className="concept-card__risks" aria-label="Things still to verify">
-            {concept.riskFlags.map((flag) => (
-              <li key={flag}>{flag}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </article>
   );
 }
 
