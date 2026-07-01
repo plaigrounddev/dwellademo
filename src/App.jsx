@@ -846,13 +846,15 @@ function AgentShell() {
         }
       },
       appendDocumentText(documentId, text) {
+        const cleanText = String(text ?? "").trim();
+        if (!cleanText) return;
         updateWorkspace((current) => {
           const activeDocument = current.documents.find((document) => document.id === documentId);
           if (!activeDocument) return current;
-          return updateLocalDocument(current, documentId, { content: appendPlainDocumentText(activeDocument.content, text) });
+          return updateLocalDocument(current, documentId, { content: appendPlainDocumentText(activeDocument.content, cleanText) });
         });
         if (isConvexDocumentId(documentId)) {
-          runWorkspaceMutation((store) => store.appendDocumentText(thread.id, documentId, text));
+          runWorkspaceMutation((store) => store.appendDocumentText(thread.id, documentId, cleanText));
         }
       },
       replaceDocumentText(documentId, text) {
@@ -1294,6 +1296,7 @@ function AgentShell() {
 
       if (name === "append_to_document") {
         if (!activeDocument) return { ok: false, error: "No document is available." };
+        if (!String(args.text ?? "").trim()) return { ok: false, error: "Text is required." };
         workspaceActions.appendDocumentText(activeDocument.id, args.text);
         openArtifact("doc");
         return { ok: true, artifact: "doc", documentId: activeDocument.id };
@@ -1301,6 +1304,7 @@ function AgentShell() {
 
       if (name === "replace_document") {
         if (!activeDocument) return { ok: false, error: "No document is available." };
+        if (!String(args.text ?? "").trim()) return { ok: false, error: "Text is required." };
         workspaceActions.replaceDocumentText(activeDocument.id, args.text);
         openArtifact("doc");
         return { ok: true, artifact: "doc", documentId: activeDocument.id };
@@ -1357,9 +1361,23 @@ function AgentShell() {
         return { ok: true, artifact: "map", marker };
       }
 
+      if (name === "create_concept_visuals") {
+        if (!Array.isArray(args.concepts) || !args.concepts.length) {
+          return { ok: false, error: "At least one concept is required." };
+        }
+        generateConceptsFromCommand(args);
+        openArtifact("concepts");
+        return {
+          ok: true,
+          artifact: "concepts",
+          status: "rendering",
+          message: "The concepts are rendering into the concept gallery now.",
+        };
+      }
+
       return { ok: false, error: `Unknown tool: ${name}` };
     },
-    [exportDocumentForUser, openArtifact, workspaceActions]
+    [exportDocumentForUser, generateConceptsFromCommand, openArtifact, workspaceActions]
   );
 
   const handleRealtimeToolCall = React.useCallback(

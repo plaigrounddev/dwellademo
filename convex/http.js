@@ -513,6 +513,54 @@ function realtimeWorkspaceTools() {
         required: ["label", "lat", "lng"],
       },
     },
+    {
+      type: "function",
+      name: "create_concept_visuals",
+      description:
+        "Turn the user's dream-home brief into 2 to 4 distinct visual concept directions rendered into the concept gallery. Design the concepts yourself first: distinct names, styles, storeys, roof forms, real generic materials (never invented brands), and honest risk flags.",
+      parameters: {
+        type: "object",
+        properties: {
+          briefSummary: { type: "string", description: "One warm sentence capturing the user's dream" },
+          brief: {
+            type: "object",
+            properties: {
+              location: { type: "string" },
+              stateOrTerritory: { type: "string" },
+              landStatus: { type: "string" },
+              budget: { type: "string" },
+              household: { type: "string" },
+              mustHaves: { type: "array", items: { type: "string" } },
+              avoid: { type: "array", items: { type: "string" } },
+              notes: { type: "string" },
+            },
+          },
+          concepts: {
+            type: "array",
+            minItems: 1,
+            maxItems: 4,
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                summary: { type: "string" },
+                style: { type: "string" },
+                storeys: { type: "number" },
+                bedrooms: { type: "number" },
+                bathrooms: { type: "number" },
+                roofForm: { type: "string" },
+                materials: { type: "array", items: { type: "string" } },
+                keyIdea: { type: "string" },
+                rationale: { type: "string" },
+                riskFlags: { type: "array", items: { type: "string" } },
+              },
+              required: ["name", "summary", "style", "storeys", "materials"],
+            },
+          },
+        },
+        required: ["concepts"],
+      },
+    },
   ];
 }
 
