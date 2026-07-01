@@ -454,7 +454,7 @@ function AgentMessageContent({ message }) {
   );
 }
 
-function AgentConversation({ messages, isProcessing = false }) {
+function AgentConversation({ messages, isProcessing = false, showVoiceCta = false, onStartVoice }) {
   return (
     <StickToBottom className="agent-conversation" resize="smooth" initial="instant" role="log" aria-label="Conversation">
       <StickToBottom.Content className="agent-conversation__content">
@@ -472,6 +472,14 @@ function AgentConversation({ messages, isProcessing = false }) {
             ) : null}
           </article>
         ))}
+        {showVoiceCta ? (
+          <button className="agent-voice-cta" type="button" onClick={onStartVoice}>
+            <span className="agent-voice-cta__icon" aria-hidden="true">
+              <Mic />
+            </span>
+            <span>Start chatting with Dwella</span>
+          </button>
+        ) : null}
         {isProcessing ? (
           <article className="agent-message agent-message--assistant agent-message--loading" aria-live="polite">
             <div className="agent-message__loading">
@@ -2002,7 +2010,12 @@ function AgentShell() {
 
       <section className="agent-drawer" aria-label="Conversation drawer">
         <h1 className="sr-only">Dwella agent workspace</h1>
-        <AgentConversation messages={messages} isProcessing={isAgentBusy} />
+        <AgentConversation
+          messages={messages}
+          isProcessing={isAgentBusy}
+          showVoiceCta={messages.length <= 1 && !isVoiceActive && !isAgentBusy && !onboardingOpen}
+          onStartVoice={startVoice}
+        />
 
         <form className={showPromptWaveform ? "agent-prompt is-voice-mode" : "agent-prompt"} action="#" onSubmit={submitPrompt}>
           <label className="sr-only" htmlFor="agent-prompt-input">

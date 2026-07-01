@@ -3078,3 +3078,50 @@ button {
 .onboarding-sheet__skip:hover {
   color: rgba(24, 25, 24, 0.72);
 }
+
+/* Voice-first CTA card under Dwella's opening message */
+.agent-voice-cta {
+  display: flex;
+  align-self: flex-start;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.8rem;
+  width: 10.5rem;
+  aspect-ratio: 1;
+  margin-top: 0.2rem;
+  border: 0;
+  border-radius: 12px;
+  background: #ffffff;
+  color: rgba(24, 25, 24, 0.74);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: center;
+  padding: 1rem;
+  cursor: pointer;
+  box-shadow: 0 10px 32px rgba(31, 33, 31, 0.07);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, color 0.16s ease;
+}
+
+.agent-voice-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 44px rgba(31, 33, 31, 0.11);
+  color: #181918;
+}
+
+.agent-voice-cta__icon {
+  display: grid;
+  place-items: center;
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 10px;
+  background: #f2f2ef;
+  color: #181918;
+}
+
+.agent-voice-cta__icon svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
