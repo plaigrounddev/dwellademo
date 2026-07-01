@@ -1,0 +1,15 @@
+
+.env.local
+node_modules/
+dist/
+.eve/
+.output/
+.workflow-data/
+.vercel/
+test-results/
+.agents/
+.claude/
+data/
+scripts/__pycache__/
+*.pyc
+/dwella-dashboard.jpg
