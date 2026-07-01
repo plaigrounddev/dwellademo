@@ -1,7 +1,7 @@
 import React from "react";
 import { motion } from "framer-motion";
 import L from "leaflet";
-import { ArrowUp, CirclePlus, Files, FileText, Home, Images, Map, MessageCircle, Mic, PanelsTopLeft, X } from "lucide-react";
+import { ArrowUp, CirclePlus, Files, FileText, Home, Images, Map, MessageCircle, Mic, PanelsTopLeft, SquarePen, X } from "lucide-react";
 import { SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import { useThreadMessages } from "convex-durable-agents/react";
@@ -284,8 +284,36 @@ function blockToProseMirrorContainer(block, index) {
   };
 }
 
+function parseInlineMarkdownToProseMirror(text) {
+  const source = String(text ?? "");
+  if (!source) return [];
+  const nodes = [];
+  const unlinked = source.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  const pattern = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|__([^_]+)__|_([^_\n]+)_|`([^`\n]+)`)/g;
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(unlinked)) !== null) {
+    if (match.index > cursor) {
+      nodes.push({ type: "text", text: unlinked.slice(cursor, match.index) });
+    }
+    if (match[2] !== undefined || match[4] !== undefined) {
+      nodes.push({ type: "text", text: match[2] ?? match[4], marks: [{ type: "bold" }] });
+    } else if (match[3] !== undefined || match[5] !== undefined) {
+      nodes.push({ type: "text", text: match[3] ?? match[5], marks: [{ type: "italic" }] });
+    } else {
+      nodes.push({ type: "text", text: match[6], marks: [{ type: "code" }] });
+    }
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < unlinked.length) {
+    nodes.push({ type: "text", text: unlinked.slice(cursor) });
+  }
+  return nodes.filter((node) => node.text);
+}
+
 function blockToProseMirrorContent(block) {
-  const content = block.content ? [{ type: "text", text: String(block.content) }] : undefined;
+  const inlineNodes = block.content ? parseInlineMarkdownToProseMirror(String(block.content)) : [];
+  const content = inlineNodes.length ? inlineNodes : undefined;
   const attrs = {
     backgroundColor: "default",
     textColor: "default",
@@ -1448,6 +1476,7 @@ function AgentShell() {
 
       if (
         (event.type === "response.audio_transcript.delta" ||
+          event.type === "response.output_audio_transcript.delta" ||
           event.type === "response.output_text.delta" ||
           event.type === "response.text.delta") &&
         event.delta
@@ -1459,6 +1488,7 @@ function AgentShell() {
       const assistantText = event.transcript || event.text;
       if (
         (event.type === "response.audio_transcript.done" ||
+          event.type === "response.output_audio_transcript.done" ||
           event.type === "response.output_text.done" ||
           event.type === "response.text.done") &&
         (assistantText || realtimeAssistantTextRef.current)
@@ -1852,6 +1882,15 @@ function AgentShell() {
         <a className="agent-rail__brand" href="/" aria-label="Dwella home">
           <AgentIcon name="home" />
         </a>
+        <button
+          className="agent-rail__button agent-rail__new-conversation"
+          type="button"
+          aria-label="Start a new conversation"
+          title="New conversation"
+          onClick={startNewConversation}
+        >
+          <SquarePen className="agent-icon" aria-hidden="true" strokeWidth={1.35} absoluteStrokeWidth />
+        </button>
         <nav className="agent-rail__menu" aria-label="Workspace tools">
           {agentNavItems.map((item) => (
             <button
@@ -2275,6 +2314,22 @@ function ConvexConceptsArtifact({ threadId }) {
   );
 }
 
+function ConceptImageSkeleton({ label }) {
+  return (
+    <div className="concept-skeleton" aria-live="polite" aria-label={`${label} rendering`}>
+      <div className="concept-skeleton__canvas">
+        <span className="concept-skeleton__roof" />
+        <span className="concept-skeleton__wall" />
+        <span className="concept-skeleton__ground" />
+      </div>
+      <div className="concept-skeleton__caption">
+        <Diamond className="concept-skeleton__diamond" />
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
 function ConceptCard({ concept }) {
   const images = [
     concept.heroImageUrl ? { key: "hero", url: concept.heroImageUrl, label: `${concept.name} exterior concept render` } : null,
@@ -2288,10 +2343,10 @@ function ConceptCard({ concept }) {
           <img className="concept-card__image" key={image.key} src={image.url} alt={image.label} loading="lazy" />
         ))}
         {concept.status === "rendering" ? (
-          <div className="concept-card__placeholder" aria-live="polite">
-            <Diamond className="concept-card__placeholder-diamond" />
-            <span>Rendering...</span>
-          </div>
+          <>
+            {!concept.heroImageUrl ? <ConceptImageSkeleton label="Exterior render" /> : null}
+            {!concept.sketchImageUrl ? <ConceptImageSkeleton label="Concept sketch" /> : null}
+          </>
         ) : null}
         {concept.status === "failed" && !images.length ? (
           <div className="concept-card__placeholder concept-card__placeholder--failed">
@@ -2991,6 +3046,15 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function startNewConversation() {
+  try {
+    window.localStorage.setItem("dwella.agent.threadId", `thread-${Date.now().toString(36)}`);
+  } catch {
+    // If storage is unavailable the reload still lands on a usable session.
+  }
+  window.location.assign("/agent");
 }
 
 function getInitialArtifact() {

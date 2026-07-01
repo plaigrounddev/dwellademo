@@ -2776,3 +2776,131 @@ button {
   font-size: 0.74rem;
   line-height: 1.5;
 }
+
+/* Document editor typography pass */
+.rich-document-surface .bn-editor h1,
+.rich-document-surface .bn-block-content[data-level="1"] h1 {
+  font-size: 1.3rem !important;
+  margin: 0 !important;
+}
+
+.rich-document-surface .bn-editor h2,
+.rich-document-surface .bn-block-content[data-level="2"] h2 {
+  font-size: 1.12rem !important;
+  margin: 0 !important;
+}
+
+.rich-document-surface .bn-editor h3,
+.rich-document-surface .bn-editor h4,
+.rich-document-surface .bn-block-content[data-level="3"] h3 {
+  font-size: 1rem !important;
+  margin: 0 !important;
+}
+
+.rich-document-surface .bn-block-content[data-content-type="heading"] {
+  padding-top: 0.85rem;
+  padding-bottom: 0.1rem;
+}
+
+.rich-document-surface .bn-block-outer {
+  line-height: 1.62;
+}
+
+.rich-document-surface .bn-block-content[data-content-type="paragraph"] {
+  padding: 0.14rem 0;
+}
+
+.rich-document-surface .bn-block-content[data-content-type="bulletListItem"],
+.rich-document-surface .bn-block-content[data-content-type="numberedListItem"] {
+  padding: 0.08rem 0;
+}
+
+/* Concept gallery skeleton */
+.concept-skeleton {
+  display: flex;
+  flex: 0 0 auto;
+  width: min(24rem, 72vw);
+  height: clamp(180px, 30vh, 300px);
+  border-radius: 8px;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f7f6f2;
+  border: 1px solid rgba(24, 25, 24, 0.06);
+  scroll-snap-align: start;
+}
+
+.concept-skeleton__canvas {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+.concept-skeleton__canvas::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.65) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: concept-shimmer 1.8s ease-in-out infinite;
+}
+
+.concept-skeleton__roof,
+.concept-skeleton__wall,
+.concept-skeleton__ground {
+  position: absolute;
+  border-radius: 6px;
+  background: #eae8e1;
+}
+
+.concept-skeleton__roof {
+  top: 18%;
+  left: 22%;
+  width: 56%;
+  height: 16%;
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+  border-radius: 0;
+}
+
+.concept-skeleton__wall {
+  top: 34%;
+  left: 26%;
+  width: 48%;
+  height: 34%;
+}
+
+.concept-skeleton__ground {
+  bottom: 12%;
+  left: 10%;
+  width: 80%;
+  height: 4%;
+  border-radius: 999px;
+  background: #efede7;
+}
+
+.concept-skeleton__caption {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.8rem;
+  background: #f2f0ea;
+  color: rgba(24, 25, 24, 0.5);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.concept-skeleton__diamond {
+  width: 0.85rem;
+  height: 0.85rem;
+  animation: concept-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes concept-skeleton-pulse {
+  0%, 100% { opacity: 0.45; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* New conversation rail button */
+.agent-rail__new-conversation {
+  margin-top: 0.2rem;
+}

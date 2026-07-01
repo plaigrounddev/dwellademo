@@ -63,7 +63,8 @@ function createBlockContainer(block, index) {
 }
 
 function createBlockContent(block) {
-  const content = block.text ? [{ type: "text", text: block.text }] : undefined;
+  const inlineNodes = block.text ? parseInlineMarkdown(block.text) : [];
+  const content = inlineNodes.length ? inlineNodes : undefined;
   if (block.kind === "heading") {
     return {
       type: "heading",
@@ -94,6 +95,34 @@ function createBlockContent(block) {
     attrs: DEFAULT_BLOCK_PROPS,
     ...(content ? { content } : {}),
   };
+}
+
+export function parseInlineMarkdown(text) {
+  const source = String(text ?? "");
+  if (!source) return [];
+  const nodes = [];
+  // Unwrap markdown links to their label text, then walk bold/italic/code spans.
+  const unlinked = source.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  const pattern = /(\*\*([^*]+)\*\*|\*([^*\n]+)\*|__([^_]+)__|_([^_\n]+)_|`([^`\n]+)`)/g;
+  let cursor = 0;
+  let match;
+  while ((match = pattern.exec(unlinked)) !== null) {
+    if (match.index > cursor) {
+      nodes.push({ type: "text", text: unlinked.slice(cursor, match.index) });
+    }
+    if (match[2] !== undefined || match[4] !== undefined) {
+      nodes.push({ type: "text", text: match[2] ?? match[4], marks: [{ type: "bold" }] });
+    } else if (match[3] !== undefined || match[5] !== undefined) {
+      nodes.push({ type: "text", text: match[3] ?? match[5], marks: [{ type: "italic" }] });
+    } else {
+      nodes.push({ type: "text", text: match[6], marks: [{ type: "code" }] });
+    }
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < unlinked.length) {
+    nodes.push({ type: "text", text: unlinked.slice(cursor) });
+  }
+  return nodes.filter((node) => node.text);
 }
 
 function splitTextBlocks(text) {
