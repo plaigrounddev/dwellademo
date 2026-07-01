@@ -58,6 +58,50 @@ export default defineSchema({
     .index("by_threadId_and_key", ["threadId", "key"])
     .index("by_threadId_and_parentKey", ["threadId", "parentKey"]),
 
+  agentConceptPackages: defineTable({
+    threadId: v.string(),
+    ownerTokenIdentifier: v.string(),
+    briefSummary: v.string(),
+    brief: v.object({
+      location: v.optional(v.string()),
+      stateOrTerritory: v.optional(v.string()),
+      landStatus: v.optional(v.string()),
+      budget: v.optional(v.string()),
+      household: v.optional(v.string()),
+      mustHaves: v.optional(v.array(v.string())),
+      avoid: v.optional(v.array(v.string())),
+      notes: v.optional(v.string()),
+    }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_ownerTokenIdentifier_and_threadId", ["ownerTokenIdentifier", "threadId"]),
+
+  agentConceptOptions: defineTable({
+    packageId: v.id("agentConceptPackages"),
+    threadId: v.string(),
+    ownerTokenIdentifier: v.string(),
+    order: v.number(),
+    name: v.string(),
+    summary: v.string(),
+    style: v.string(),
+    storeys: v.number(),
+    bedrooms: v.optional(v.number()),
+    bathrooms: v.optional(v.number()),
+    roofForm: v.optional(v.string()),
+    materials: v.array(v.string()),
+    keyIdea: v.optional(v.string()),
+    rationale: v.optional(v.string()),
+    riskFlags: v.optional(v.array(v.string())),
+    status: v.union(v.literal("rendering"), v.literal("ready"), v.literal("failed")),
+    heroImageId: v.optional(v.id("_storage")),
+    sketchImageId: v.optional(v.id("_storage")),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_packageId", ["packageId"])
+    .index("by_ownerTokenIdentifier_and_threadId", ["ownerTokenIdentifier", "threadId"]),
+
   agentMapMarkers: defineTable({
     threadId: v.string(),
     ownerTokenIdentifier: v.optional(v.string()),

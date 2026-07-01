@@ -446,7 +446,7 @@ function realtimeWorkspaceTools() {
       description: "Show one workspace artifact panel in the right side of the app.",
       parameters: {
         type: "object",
-        properties: { target: { type: "string", enum: ["doc", "map", "browser", "files"] } },
+        properties: { target: { type: "string", enum: ["doc", "map", "browser", "files", "concepts"] } },
         required: ["target"],
       },
     },

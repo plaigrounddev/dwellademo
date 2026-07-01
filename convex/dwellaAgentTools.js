@@ -1,7 +1,13 @@
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
 
-const vArtifactTarget = v.union(v.literal("doc"), v.literal("map"), v.literal("browser"), v.literal("files"));
+const vArtifactTarget = v.union(
+  v.literal("doc"),
+  v.literal("map"),
+  v.literal("browser"),
+  v.literal("files"),
+  v.literal("concepts")
+);
 
 export const showArtifact = internalAction({
   args: { target: vArtifactTarget },
@@ -132,6 +138,58 @@ export const addMapMarker = internalAction({
       { type: "add_map_marker", target: "map", payload: { marker } },
       openArtifact("map", "add_map_marker"),
     ]);
+  },
+});
+
+export const createConceptVisuals = internalAction({
+  args: {
+    briefSummary: v.optional(v.string()),
+    brief: v.optional(
+      v.object({
+        location: v.optional(v.string()),
+        stateOrTerritory: v.optional(v.string()),
+        landStatus: v.optional(v.string()),
+        budget: v.optional(v.string()),
+        household: v.optional(v.string()),
+        mustHaves: v.optional(v.array(v.string())),
+        avoid: v.optional(v.array(v.string())),
+        notes: v.optional(v.string()),
+      })
+    ),
+    concepts: v.array(
+      v.object({
+        name: v.string(),
+        summary: v.string(),
+        style: v.string(),
+        storeys: v.number(),
+        bedrooms: v.optional(v.number()),
+        bathrooms: v.optional(v.number()),
+        roofForm: v.optional(v.string()),
+        materials: v.array(v.string()),
+        keyIdea: v.optional(v.string()),
+        rationale: v.optional(v.string()),
+        riskFlags: v.optional(v.array(v.string())),
+      })
+    ),
+  },
+  returns: v.any(),
+  handler: async (_ctx, args) => {
+    const conceptCount = Math.min(args.concepts.length, 5);
+    return commandResult(
+      `Started rendering ${conceptCount} concept direction${conceptCount === 1 ? "" : "s"} in the concept gallery.`,
+      [
+        {
+          type: "create_concepts",
+          target: "concepts",
+          payload: {
+            briefSummary: args.briefSummary,
+            brief: args.brief,
+            concepts: args.concepts.slice(0, 5),
+          },
+        },
+        openArtifact("concepts", "create_concept_visuals"),
+      ]
+    );
   },
 });
 

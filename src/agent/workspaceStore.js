@@ -60,6 +60,19 @@ export function createAgentWorkspaceStore(client) {
     updateBrowserUrl(threadId, url) {
       return client.mutation(api.agentWorkspace.updateBrowserUrl, { threadId, url });
     },
+    generateConcepts(threadId, payload = {}) {
+      const concepts = (Array.isArray(payload.concepts) ? payload.concepts : [])
+        .map(sanitizeConceptInput)
+        .filter(Boolean)
+        .slice(0, 5);
+      if (!concepts.length) return Promise.resolve(null);
+      const args = { threadId, concepts };
+      const briefSummary = String(payload.briefSummary ?? "").trim();
+      if (briefSummary) args.briefSummary = briefSummary;
+      const brief = sanitizeConceptBrief(payload.brief);
+      if (brief) args.brief = brief;
+      return client.action(api.conceptDesigner.generateConceptPackage, args);
+    },
     async uploadDocumentAsset(threadId, file) {
       const uploadUrl = await client.mutation(api.agentWorkspace.generateDocumentAssetUploadUrl, { threadId });
       const uploadResponse = await fetch(uploadUrl, {
@@ -81,4 +94,48 @@ export function createAgentWorkspaceStore(client) {
       return result;
     },
   };
+}
+
+function sanitizeConceptInput(concept) {
+  const name = String(concept?.name ?? "").trim();
+  const summary = String(concept?.summary ?? "").trim();
+  if (!name || !summary) return null;
+  const materials = (Array.isArray(concept?.materials) ? concept.materials : [])
+    .map((material) => String(material ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const clean = {
+    name,
+    summary,
+    style: String(concept?.style ?? "modern Australian").trim() || "modern Australian",
+    storeys: Number.isFinite(Number(concept?.storeys)) ? Number(concept.storeys) : 1,
+    materials: materials.length ? materials : ["metal roof", "fibre cement cladding"],
+  };
+  if (Number.isFinite(Number(concept?.bedrooms))) clean.bedrooms = Number(concept.bedrooms);
+  if (Number.isFinite(Number(concept?.bathrooms))) clean.bathrooms = Number(concept.bathrooms);
+  for (const key of ["roofForm", "keyIdea", "rationale"]) {
+    const value = String(concept?.[key] ?? "").trim();
+    if (value) clean[key] = value;
+  }
+  if (Array.isArray(concept?.riskFlags)) {
+    const riskFlags = concept.riskFlags.map((flag) => String(flag ?? "").trim()).filter(Boolean).slice(0, 8);
+    if (riskFlags.length) clean.riskFlags = riskFlags;
+  }
+  return clean;
+}
+
+function sanitizeConceptBrief(brief) {
+  if (!brief || typeof brief !== "object") return null;
+  const clean = {};
+  for (const key of ["location", "stateOrTerritory", "landStatus", "budget", "household", "notes"]) {
+    const value = String(brief[key] ?? "").trim();
+    if (value) clean[key] = value;
+  }
+  for (const key of ["mustHaves", "avoid"]) {
+    if (Array.isArray(brief[key])) {
+      const values = brief[key].map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, 12);
+      if (values.length) clean[key] = values;
+    }
+  }
+  return Object.keys(clean).length ? clean : null;
 }

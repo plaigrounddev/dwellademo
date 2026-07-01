@@ -1,9 +1,9 @@
 import React from "react";
 import { motion } from "framer-motion";
 import L from "leaflet";
-import { ArrowUp, CirclePlus, Files, FileText, Home, Map, MessageCircle, Mic, PanelsTopLeft, X } from "lucide-react";
+import { ArrowUp, CirclePlus, Files, FileText, Home, Images, Map, MessageCircle, Mic, PanelsTopLeft, X } from "lucide-react";
 import { SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
-import { useConvex, useConvexAuth } from "convex/react";
+import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import { useThreadMessages } from "convex-durable-agents/react";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { BlockNoteEditor } from "@blocknote/core";
@@ -161,6 +161,7 @@ function DwellaHeroReveal({ onStart, onOpenAgent }) {
 const agentNavItems = [
   { label: "Conversation", icon: "chat" },
   { label: "Document editor", icon: "doc" },
+  { label: "Concept gallery", icon: "concepts" },
   { label: "Live map", icon: "map" },
   { label: "Browser sandbox", icon: "browser" },
   { label: "Files", icon: "files" }
@@ -168,10 +169,13 @@ const agentNavItems = [
 
 const artifactMenuItems = [
   { label: "Document editor", icon: "doc" },
+  { label: "Concept gallery", icon: "concepts" },
   { label: "Live map", icon: "map" },
   { label: "Browser sandbox", icon: "browser" },
   { label: "Files workspace", icon: "files" }
 ];
+
+const artifactTargets = ["doc", "map", "browser", "files", "concepts"];
 
 const agentUserButtonAppearance = {
   elements: {
@@ -207,6 +211,7 @@ const agentUserButtonAppearance = {
 const lucideIcons = {
   browser: PanelsTopLeft,
   chat: MessageCircle,
+  concepts: Images,
   doc: FileText,
   files: Files,
   home: Home,
@@ -356,6 +361,7 @@ function shouldOpenArtifactForCommand(type) {
     "create_folder",
     "set_browser_url",
     "add_map_marker",
+    "create_concepts",
   ].includes(type);
 }
 
@@ -785,7 +791,7 @@ function AgentShell() {
 
   const openArtifact = React.useCallback((target) => {
     artifactDismissedRef.current = false;
-    if (target && ["doc", "map", "browser", "files"].includes(target)) {
+    if (target && artifactTargets.includes(target)) {
       setActiveArtifact(target);
       if (window.location.pathname === "/agent") {
         window.history.replaceState({}, "", `/agent?artifact=${target}`);
@@ -946,12 +952,30 @@ function AgentShell() {
     [openArtifact, workspaceActions]
   );
 
+  const generateConceptsFromCommand = React.useCallback(
+    (payload = {}) => {
+      if (!agentWorkspaceStore) return;
+      agentWorkspaceStore.generateConcepts(thread.id, payload).catch((error) => {
+        console.error("Dwella concept generation failed", error);
+        setMessages((current) => [
+          ...current,
+          {
+            id: createClientMessageId("concepts-error"),
+            role: "assistant",
+            content: "I couldn't start rendering those concepts just now. Please try again in a moment.",
+          },
+        ]);
+      });
+    },
+    [agentWorkspaceStore, thread.id]
+  );
+
   const applyScreenCommands = React.useCallback(
     (commands = []) => {
       if (!Array.isArray(commands)) return;
       const shouldAutoOpenArtifact = !window.matchMedia("(max-width: 900px)").matches;
       for (const command of commands) {
-        const target = ["doc", "map", "browser", "files"].includes(command?.target) ? command.target : null;
+        const target = artifactTargets.includes(command?.target) ? command.target : null;
 
         if (command?.type === "create_document") {
           workspaceActions.createDocument({
@@ -997,6 +1021,10 @@ function AgentShell() {
           if (url) workspaceActions.updateBrowserUrl(url);
         }
 
+        if (command?.type === "create_concepts") {
+          generateConceptsFromCommand(command.payload);
+        }
+
         if (command?.type === "add_map_marker") {
           const marker = command.payload?.marker ?? command.payload;
           if (isFiniteNumber(marker?.lat) && isFiniteNumber(marker?.lng)) {
@@ -1020,7 +1048,7 @@ function AgentShell() {
         }
       }
     },
-    [exportDocumentForUser, workspaceActions]
+    [exportDocumentForUser, generateConceptsFromCommand, workspaceActions]
   );
 
   const sendMessage = React.useCallback(
@@ -2024,6 +2052,7 @@ function AgentShell() {
             workspace={workspace}
             actions={workspaceActions}
             openArtifact={openArtifact}
+            threadId={thread.id}
           />
         </div>
       </section>
@@ -2162,7 +2191,7 @@ function AuthTransitionScreen({ label }) {
   return <main className="agent-auth-gate" aria-label={label} />;
 }
 
-function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact }) {
+function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact, threadId }) {
   if (activeArtifact === "doc") {
     return <DocumentArtifact workspace={workspace} actions={actions} openArtifact={openArtifact} />;
   }
@@ -2175,7 +2204,111 @@ function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact })
     return <FilesArtifact workspace={workspace} actions={actions} openArtifact={openArtifact} />;
   }
 
+  if (activeArtifact === "concepts") {
+    return <ConceptsArtifact threadId={threadId} />;
+  }
+
   return <BrowserArtifact workspace={workspace} actions={actions} />;
+}
+
+function ConceptsArtifact({ threadId }) {
+  if (localAuthBypass) {
+    return (
+      <div className="artifact-empty">
+        <p>Sign in to generate and browse home concept imagery.</p>
+      </div>
+    );
+  }
+  return <ConvexConceptsArtifact threadId={threadId} />;
+}
+
+function ConvexConceptsArtifact({ threadId }) {
+  const conceptData = useQuery(api.conceptDesigner.listThreadConcepts, { threadId });
+
+  if (conceptData === undefined) {
+    return (
+      <div className="artifact-concepts artifact-concepts--empty">
+        <p>Opening the concept gallery...</p>
+      </div>
+    );
+  }
+
+  if (!conceptData || !conceptData.concepts.length) {
+    return (
+      <div className="artifact-concepts artifact-concepts--empty">
+        <h3>Nothing here yet, and that's the fun part.</h3>
+        <p>Describe your dream home in the conversation and Dwella will sketch a few directions you can scroll through here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="artifact-concepts">
+      <header className="artifact-concepts__header">
+        <h3>{conceptData.briefSummary}</h3>
+      </header>
+      <div className="concept-card-list">
+        {conceptData.concepts.map((concept) => (
+          <ConceptCard concept={concept} key={concept.id} />
+        ))}
+      </div>
+      <p className="concept-disclaimer">{conceptData.disclaimer}</p>
+    </div>
+  );
+}
+
+function ConceptCard({ concept }) {
+  const images = [
+    concept.heroImageUrl ? { key: "hero", url: concept.heroImageUrl, label: `${concept.name} exterior concept render` } : null,
+    concept.sketchImageUrl ? { key: "sketch", url: concept.sketchImageUrl, label: `${concept.name} elevation sketch` } : null,
+  ].filter(Boolean);
+
+  return (
+    <article className="concept-card" aria-label={concept.name}>
+      <div className="concept-card__gallery" role="group" aria-label={`${concept.name} imagery`}>
+        {images.map((image) => (
+          <img className="concept-card__image" key={image.key} src={image.url} alt={image.label} loading="lazy" />
+        ))}
+        {concept.status === "rendering" ? (
+          <div className="concept-card__placeholder" aria-live="polite">
+            <Diamond className="concept-card__placeholder-diamond" />
+            <span>Rendering...</span>
+          </div>
+        ) : null}
+        {concept.status === "failed" && !images.length ? (
+          <div className="concept-card__placeholder concept-card__placeholder--failed">
+            <span>{concept.error || "This concept's imagery couldn't be rendered."}</span>
+          </div>
+        ) : null}
+      </div>
+      <div className="concept-card__body">
+        <h4>{concept.name}</h4>
+        <p className="concept-card__summary">{concept.summary}</p>
+        {concept.keyIdea ? <p className="concept-card__idea">{concept.keyIdea}</p> : null}
+        <div className="concept-card__meta">
+          <span>{concept.storeys === 1 ? "Single storey" : `${concept.storeys} storeys`}</span>
+          {concept.bedrooms ? <span>{concept.bedrooms} bed</span> : null}
+          {concept.bathrooms ? <span>{concept.bathrooms} bath</span> : null}
+          {concept.roofForm ? <span>{concept.roofForm}</span> : null}
+        </div>
+        {concept.materials.length ? (
+          <div className="concept-card__materials" aria-label="Concept materials">
+            {concept.materials.map((material) => (
+              <span key={material}>{material}</span>
+            ))}
+          </div>
+        ) : null}
+        {concept.rationale ? <p className="concept-card__rationale">{concept.rationale}</p> : null}
+        {concept.riskFlags.length ? (
+          <ul className="concept-card__risks" aria-label="Things still to verify">
+            {concept.riskFlags.map((flag) => (
+              <li key={flag}>{flag}</li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </article>
+  );
 }
 
 function DocumentArtifact({ workspace, actions, openArtifact }) {
@@ -2849,7 +2982,7 @@ function getInitialArtifact() {
 function getRequestedArtifact() {
   const params = new URLSearchParams(window.location.search);
   const requested = params.get("artifact") || window.location.hash.replace("#", "");
-  return ["doc", "map", "browser", "files"].includes(requested) ? requested : null;
+  return artifactTargets.includes(requested) ? requested : null;
 }
 
 function getSafeRedirectTarget() {

@@ -5,7 +5,36 @@ import { components, internal } from "./_generated/api";
 import { env } from "./_generated/server";
 import { DWELLA_AGENT_INSTRUCTIONS } from "./dwellaConversationContract.js";
 
-const artifactTarget = z.enum(["doc", "map", "browser", "files"]);
+const artifactTarget = z.enum(["doc", "map", "browser", "files", "concepts"]);
+
+const conceptBriefSchema = z.object({
+  location: z.string().optional(),
+  stateOrTerritory: z.string().optional(),
+  landStatus: z.string().optional(),
+  budget: z.string().optional(),
+  household: z.string().optional(),
+  mustHaves: z.array(z.string()).optional(),
+  avoid: z.array(z.string()).optional(),
+  notes: z.string().optional(),
+});
+
+const conceptSchema = z.object({
+  name: z.string().describe("Memorable concept name, e.g. Coastal Courtyard House"),
+  summary: z.string().describe("One or two sentences on who this direction suits and why"),
+  style: z.string().describe("Style keywords, e.g. modern Australian coastal, warm minimal"),
+  storeys: z.number().min(1).max(3),
+  bedrooms: z.number().optional(),
+  bathrooms: z.number().optional(),
+  roofForm: z.string().optional().describe("e.g. low-pitched gable with metal roof"),
+  materials: z
+    .array(z.string())
+    .min(2)
+    .max(8)
+    .describe("Real generic material categories only, never invented brand or product names"),
+  keyIdea: z.string().optional().describe("The single organising idea of this direction"),
+  rationale: z.string().optional().describe("Short designer-style rationale: site, climate, lifestyle response"),
+  riskFlags: z.array(z.string()).optional().describe("Honest unknowns, e.g. setbacks not verified, BAL unknown"),
+});
 
 export const chatAgentHandler = streamHandlerAction(components.durable_agents, async () => {
   if (!env.OPENAI_API_KEY) {
@@ -100,6 +129,17 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, a
           lng: z.number(),
         }),
         handler: internal.dwellaAgentTools.addMapMarker,
+        retry: true,
+      }),
+      create_concept_visuals: createActionTool({
+        description:
+          "Turn the user's dream-home brief into 2 to 4 distinct visual concept directions. Each direction gets a realistic exterior render and a presentation elevation sketch in the concept gallery. Design the concepts yourself first: distinct names, styles, storeys, roof forms, real generic materials (never invented brands), and honest risk flags. Concept design only, never permit-ready.",
+        args: z.object({
+          briefSummary: z.string().optional().describe("One warm sentence capturing the user's dream"),
+          brief: conceptBriefSchema.optional(),
+          concepts: z.array(conceptSchema).min(1).max(4),
+        }),
+        handler: internal.dwellaAgentTools.createConceptVisuals,
         retry: true,
       }),
       request_builder_outreach_approval: createActionTool({

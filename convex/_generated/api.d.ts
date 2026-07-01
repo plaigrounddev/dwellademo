@@ -9,6 +9,7 @@
  */
 
 import type * as agentWorkspace from "../agentWorkspace.js";
+import type * as conceptDesigner from "../conceptDesigner.js";
 import type * as dwellaAgent from "../dwellaAgent.js";
 import type * as dwellaAgentApi from "../dwellaAgentApi.js";
 import type * as dwellaAgentTools from "../dwellaAgentTools.js";
@@ -26,6 +27,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agentWorkspace: typeof agentWorkspace;
+  conceptDesigner: typeof conceptDesigner;
   dwellaAgent: typeof dwellaAgent;
   dwellaAgentApi: typeof dwellaAgentApi;
   dwellaAgentTools: typeof dwellaAgentTools;

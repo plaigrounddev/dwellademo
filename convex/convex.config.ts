@@ -8,6 +8,7 @@ const app = defineApp({
     OPENAI_API_KEY: v.optional(v.string()),
     OPENAI_TEXT_MODEL: v.optional(v.string()),
     OPENAI_TRANSCRIBE_MODEL: v.optional(v.string()),
+    OPENAI_IMAGE_MODEL: v.optional(v.string()),
   },
 });
 
