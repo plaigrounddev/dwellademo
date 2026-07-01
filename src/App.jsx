@@ -2230,11 +2230,10 @@ function OnboardingSheet({ onComplete, onSkip }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="onboarding-title"
-        initial={{ y: 48, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
+        initial={{ y: 14, scale: 0.98, opacity: 0 }}
+        animate={{ y: 0, scale: 1, opacity: 1 }}
         transition={{ type: "spring", stiffness: 340, damping: 32 }}
       >
-        <span className="onboarding-sheet__handle" aria-hidden="true" />
         <h2 id="onboarding-title">Before we dream</h2>
         <p>A couple of details so Dwella knows who she's building with.</p>
         <form onSubmit={submit}>

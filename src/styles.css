@@ -2962,14 +2962,15 @@ button {
   background: rgba(24, 25, 24, 0.12);
 }
 
-/* Onboarding bottom sheet */
+/* Onboarding modal */
 .onboarding-scrim {
   position: fixed;
   inset: 0;
   z-index: 60;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
+  padding: 1.4rem;
   background: rgba(24, 25, 24, 0.32);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
@@ -2977,35 +2978,27 @@ button {
 
 .onboarding-sheet {
   display: flex;
-  width: min(30rem, calc(100vw - 1.6rem));
+  width: min(29rem, 100%);
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
   flex-direction: column;
   gap: 0.4rem;
-  margin-bottom: 0.8rem;
-  padding: 1.1rem 1.5rem 1.25rem;
-  border-radius: 16px;
+  padding: clamp(1.8rem, 4vh, 2.6rem) clamp(1.6rem, 4vw, 2.6rem);
+  border-radius: 18px;
   background: #fbfaf6;
-  border: 1px solid rgba(24, 25, 24, 0.08);
   box-shadow: 0 24px 70px rgba(31, 33, 31, 0.22);
-}
-
-.onboarding-sheet__handle {
-  width: 2.2rem;
-  height: 0.26rem;
-  margin: 0 auto 0.55rem;
-  border-radius: 999px;
-  background: rgba(24, 25, 24, 0.14);
 }
 
 .onboarding-sheet h2 {
   margin: 0;
   color: #181918;
-  font-size: 1.14rem;
+  font-size: 1.16rem;
   font-weight: 600;
   letter-spacing: 0;
 }
 
 .onboarding-sheet > p {
-  margin: 0 0 0.75rem;
+  margin: 0 0 1.1rem;
   color: rgba(24, 25, 24, 0.58);
   font-size: 0.88rem;
   line-height: 1.5;
@@ -3014,13 +3007,13 @@ button {
 .onboarding-sheet form {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
+  gap: 0.85rem;
 }
 
 .onboarding-sheet label {
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
+  gap: 0.3rem;
 }
 
 .onboarding-sheet label span {
@@ -3030,24 +3023,30 @@ button {
 }
 
 .onboarding-sheet input {
-  height: 2.6rem;
-  border: 1px solid rgba(24, 25, 24, 0.14);
+  height: 2.65rem;
+  border: 0;
   border-radius: 8px;
-  background: #ffffff;
+  background: #f2f2ef;
   color: #181918;
   font: inherit;
   font-size: 0.92rem;
-  padding: 0 0.85rem;
+  padding: 0 0.9rem;
   outline: none;
+  transition: box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.onboarding-sheet input::placeholder {
+  color: rgba(24, 25, 24, 0.34);
 }
 
 .onboarding-sheet input:focus {
-  border-color: rgba(24, 25, 24, 0.34);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(24, 25, 24, 0.12);
 }
 
 .onboarding-sheet__start {
-  height: 2.75rem;
-  margin-top: 0.35rem;
+  height: 2.8rem;
+  margin-top: 0.5rem;
   border: 0;
   border-radius: 8px;
   background: #282927;
@@ -3064,7 +3063,7 @@ button {
 }
 
 .onboarding-sheet__skip {
-  margin: 0.55rem auto 0;
+  margin: 0.75rem auto 0;
   border: 0;
   background: transparent;
   color: rgba(24, 25, 24, 0.46);
