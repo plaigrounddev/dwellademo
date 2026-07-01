@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createDwellaAgentClient } from "../../agent/client.js";
+import { createDwellaAgentClient } from "../client.js";
 
 test("agent client sends text and voice traffic through the same-origin endpoint with Clerk auth", async () => {
   const requests = [];

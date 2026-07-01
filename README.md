@@ -21,4 +21,4 @@ The browser app calls the same-origin `/dwella/agent/*` path. Local Vite proxies
 
 Eve uses `DWELLA_EVE_MODEL` or `AI_GATEWAY_MODEL` through Vercel AI Gateway when configured. Otherwise it uses the OpenAI AI SDK provider with the existing `OPENAI_API_KEY`. The sandbox uses Eve's default backend selection with `microsandbox` installed for file/shell workspace support.
 
-Convex remains the durable store for documents, file entries, map state, browser state, and builder data. It no longer owns the agent HTTP or Realtime voice routes.
+Convex remains the durable store for documents, file entries, map state, and browser state. It no longer owns the agent HTTP or Realtime voice routes.

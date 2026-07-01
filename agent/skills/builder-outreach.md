@@ -1,6 +1,6 @@
 # Builder Outreach Skill
 
-Use stored builder evidence before drafting outreach.
+Use only builder evidence supplied by the user or verified during the run before drafting outreach.
 
 Draft messages for approval. Never send, submit, call, or share documents without explicit user approval.
 

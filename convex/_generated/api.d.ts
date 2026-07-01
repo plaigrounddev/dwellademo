@@ -9,7 +9,6 @@
  */
 
 import type * as agentWorkspace from "../agentWorkspace.js";
-import type * as builderMemory from "../builderMemory.js";
 import type * as dwellaConversationContract from "../dwellaConversationContract.js";
 
 import type {
@@ -20,7 +19,6 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agentWorkspace: typeof agentWorkspace;
-  builderMemory: typeof builderMemory;
   dwellaConversationContract: typeof dwellaConversationContract;
 }>;
 

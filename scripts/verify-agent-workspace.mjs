@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
@@ -8,6 +8,7 @@ const read = (file) => readFile(path.join(root, file), "utf8");
 const [
   app,
   styles,
+  packageJson,
   workspace,
   schema,
   realtimeWrapper,
@@ -25,6 +26,7 @@ const [
 ] = await Promise.all([
   read("src/App.jsx"),
   read("src/styles.css"),
+  read("package.json"),
   read("convex/agentWorkspace.js"),
   read("convex/schema.js"),
   read("agent/lib/openaiRealtime.js"),
@@ -52,6 +54,9 @@ const [
     "show_artifact",
   ].map((tool) => read(`agent/tools/${tool}.ts`)),
 ]);
+
+await assertPathMissing("src/backend");
+await assertPathMissing("convex/builderMemory.js");
 
 const workspaceTools = [
   "show_artifact",
@@ -133,6 +138,8 @@ assert.doesNotMatch(viteConfig, /VITE_CONVEX_SITE_URL/, "Local Vite must not pro
 assert.match(vercelConfig, /experimentalServices/, "Vercel must deploy the Vite shell and Eve runtime as services");
 assert.match(vercelConfig, /"\/_eve_internal\/eve"/, "Vercel must mount Eve behind an internal service prefix");
 assert.doesNotMatch(vercelConfig, /api\/dwella|CONVEX_SITE_URL|DWELLA_EVE_AGENT_URL/, "Vercel must not route Dwella agent calls through the old API or Convex proxy");
+assert.doesNotMatch(packageJson, /builders?:|src\/backend|builderMemory/, "Package scripts must not expose removed builder/backend pipelines");
+assert.deepEqual(await listBuilderScripts(), [], "Builder/import scripts should not remain in the runtime repo");
 assert.match(realtimeWrapper, /realtime\/client_secrets/, "Realtime client secret endpoint missing");
 assert.match(realtimeWrapper, /OPENAI_REALTIME_MODEL = "gpt-realtime-2"/, "Realtime 2 model missing from wrapper");
 for (const commandType of [
@@ -155,6 +162,7 @@ assert.match(app, /workspaceActions\.updateDocument/, "Document update action mi
 assert.match(workspace, /export const createDocument = mutation/, "Convex createDocument mutation missing");
 assert.match(workspace, /export const updateDocument = mutation/, "Convex updateDocument mutation missing");
 assert.match(schema, /agentDocuments: defineTable/, "Convex agentDocuments schema missing");
+assert.doesNotMatch(schema, /builder[A-Z]|builders: defineTable|builderMemory/, "Convex schema should only keep durable agent workspace tables");
 
 assert.match(app, /L\.map/, "Leaflet map initialization missing");
 assert.match(app, /tile\.openstreetmap\.org/, "OpenStreetMap tile layer missing");
@@ -190,3 +198,18 @@ assert.match(styles, /transform: translateY\(calc\(100% \+ 1\.5rem\)\)/, "Closed
 assert.doesNotMatch(styles, /\.agent-[^{]+{[^}]*font-family:[^}]*mono/is, "Agent shell should not use mono font styling");
 
 console.log("Agent workspace verification passed.");
+
+async function assertPathMissing(filePath) {
+  try {
+    await stat(path.join(root, filePath));
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  assert.fail(`${filePath} should not exist`);
+}
+
+async function listBuilderScripts() {
+  const entries = await readdir(path.join(root, "scripts"));
+  return entries.filter((entry) => /builder|builders/.test(entry)).sort();
+}
