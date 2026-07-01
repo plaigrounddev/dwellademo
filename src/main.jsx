@@ -81,6 +81,7 @@ createRoot(document.getElementById("root")).render(
       <ClerkProvider
         publishableKey={clerkPublishableKey}
         signInUrl="/sign-in"
+        signUpUrl="/sign-up"
         signInFallbackRedirectUrl="/agent"
         signUpFallbackRedirectUrl="/agent"
         afterSignOutUrl="/"

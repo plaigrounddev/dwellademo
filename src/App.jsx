@@ -2,7 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import L from "leaflet";
 import { ArrowUp, CirclePlus, Files, FileText, Home, Map, MessageCircle, Mic, PanelsTopLeft, X } from "lucide-react";
-import { SignIn, UserButton, useAuth } from "@clerk/react";
+import { SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { useConvex, useConvexAuth } from "convex/react";
 import "leaflet/dist/leaflet.css";
 import "streamdown/styles.css";
@@ -1592,7 +1592,7 @@ function AgentAuthGate() {
     if (!isLoaded || isSignedIn) return;
     const redirectPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     rememberPendingAgentMessage();
-    window.history.replaceState({}, "", `/sign-in?redirect_url=${encodeURIComponent(redirectPath)}`);
+    window.history.replaceState({}, "", `/sign-up?redirect_url=${encodeURIComponent(redirectPath)}`);
   }, [isLoaded, isSignedIn]);
 
   if (!isLoaded) {
@@ -1671,10 +1671,62 @@ function SignInPage() {
         <SignIn
           path="/sign-in"
           routing="path"
+          signUpUrl="/sign-up"
           forceRedirectUrl={redirectTarget}
           signUpForceRedirectUrl={redirectTarget}
           fallbackRedirectUrl={redirectTarget}
           signUpFallbackRedirectUrl={redirectTarget}
+        />
+      </section>
+    </main>
+  );
+}
+
+function SignUpPage() {
+  if (localAuthBypass) {
+    return <AgentShell />;
+  }
+
+  const { isLoaded, isSignedIn } = useAuth();
+  const redirectTarget = getSafeRedirectTarget();
+
+  React.useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      window.history.replaceState({}, "", restorePendingAgentMessage(redirectTarget));
+    }
+  }, [isLoaded, isSignedIn, redirectTarget]);
+
+  React.useEffect(() => {
+    if (!isLoaded || isSignedIn) return;
+    const currentRedirect = new URLSearchParams(window.location.search).get("redirect_url");
+    if (currentRedirect && currentRedirect !== redirectTarget) {
+      window.history.replaceState({}, "", `/sign-up?redirect_url=${encodeURIComponent(redirectTarget)}`);
+    }
+  }, [isLoaded, isSignedIn, redirectTarget]);
+
+  if (!isLoaded) {
+    return <AuthTransitionScreen label="Loading sign up" />;
+  }
+
+  if (isSignedIn) {
+    return <AuthTransitionScreen label="Redirecting to workspace" />;
+  }
+
+  return (
+    <main className="auth-page" aria-label="Sign up for Dwella">
+      <div className="auth-page__backdrop" aria-hidden="true" />
+      <a className="auth-page__brand" href="/">
+        Dwella
+      </a>
+      <section className="auth-page__form" aria-label="Dwella sign up form">
+        <SignUp
+          path="/sign-up"
+          routing="path"
+          signInUrl="/sign-in"
+          forceRedirectUrl={redirectTarget}
+          signInForceRedirectUrl={redirectTarget}
+          fallbackRedirectUrl={redirectTarget}
+          signInFallbackRedirectUrl={redirectTarget}
         />
       </section>
     </main>
@@ -2330,6 +2382,10 @@ export default function App() {
 
   if (path === "/sign-in") {
     return <SignInPage />;
+  }
+
+  if (path === "/sign-up") {
+    return <SignUpPage />;
   }
 
   return <DwellaHeroReveal onStart={startAgent} onOpenAgent={openAgent} />;

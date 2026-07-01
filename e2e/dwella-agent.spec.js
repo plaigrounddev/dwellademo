@@ -7,7 +7,7 @@ const pendingMessageKey = "dwella.pendingAgentMessage";
 const testPrompt = "Need a Brisbane duplex quote";
 const clerkTestEmail = process.env.E2E_CLERK_EMAIL ?? process.env.CLERK_TEST_USER_EMAIL ?? "";
 
-test("unauthenticated agent prompt redirects to sign-in and preserves the message", async ({ page }) => {
+test("unauthenticated agent prompt redirects to sign-up and preserves the message", async ({ page }) => {
   const agentRequests = [];
   page.on("request", (request) => {
     if (new URL(request.url()).pathname === "/dwella/agent/runs") {
@@ -16,15 +16,15 @@ test("unauthenticated agent prompt redirects to sign-in and preserves the messag
   });
 
   await page.goto(`/agent?message=${encodeURIComponent(testPrompt)}`);
-  await page.waitForURL(/\/sign-in\?redirect_url=/);
+  await page.waitForURL(/\/sign-up\?redirect_url=/);
 
   const currentUrl = new URL(page.url());
-  expect(currentUrl.pathname).toBe("/sign-in");
+  expect(currentUrl.pathname).toBe("/sign-up");
   const redirectTarget = new URL(currentUrl.searchParams.get("redirect_url"), currentUrl.origin);
   expect(redirectTarget.pathname).toBe("/agent");
   expect(redirectTarget.searchParams.get("message")).toBe(testPrompt);
   await expect(page.locator("main.auth-page")).toBeVisible();
-  await expect(page.getByLabel("Dwella sign in form")).toBeVisible();
+  await expect(page.getByLabel("Dwella sign up form")).toBeVisible();
   await expect(page.getByText(/Opening Dwella/i)).toHaveCount(0);
   await expect(page.getByText(/not available right now/i)).toHaveCount(0);
 
@@ -35,6 +35,12 @@ test("unauthenticated agent prompt redirects to sign-in and preserves the messag
 
 test("sign-in route normalizes unsafe redirect targets back to the agent", async ({ page }) => {
   await page.goto("/sign-in?redirect_url=https%3A%2F%2Fevil.example%2Fagent%3Fmessage%3Dsteal");
+  await expect.poll(() => new URL(page.url()).searchParams.get("redirect_url")).toBe("/agent");
+  await expect(page.locator("main.auth-page")).toBeVisible();
+});
+
+test("sign-up route normalizes unsafe redirect targets back to the agent", async ({ page }) => {
+  await page.goto("/sign-up?redirect_url=https%3A%2F%2Fevil.example%2Fagent%3Fmessage%3Dsteal");
   await expect.poll(() => new URL(page.url()).searchParams.get("redirect_url")).toBe("/agent");
   await expect(page.locator("main.auth-page")).toBeVisible();
 });
@@ -66,7 +72,7 @@ test.describe("authenticated Clerk to Dwella agent", () => {
 
   test("restores the preserved prompt and sends it to the real agent route", async ({ page }) => {
     await page.goto(`/agent?message=${encodeURIComponent(testPrompt)}`);
-    await page.waitForURL(/\/sign-in\?redirect_url=/);
+    await page.waitForURL(/\/sign-up\?redirect_url=/);
 
     const agentResponsePromise = page.waitForResponse(
       (response) => new URL(response.url()).pathname === "/dwella/agent/runs" && response.request().method() === "POST",
