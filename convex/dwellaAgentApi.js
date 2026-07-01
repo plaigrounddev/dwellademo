@@ -145,6 +145,27 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, a
         handler: internal.dwellaAgentTools.showConceptInColor,
         retry: true,
       }),
+      show_concept_floor_plan: createActionTool({
+        description:
+          "Draw a concept floor plan image for a concept direction in the gallery: top-down, white background, room labels, metric dimensions. Concept-only, never construction documentation. Use when the user asks about layout, rooms, or a floor plan.",
+        args: z.object({
+          conceptName: z.string().optional().describe("Name of the concept to plan; omit for the latest one"),
+        }),
+        handler: internal.dwellaAgentTools.showConceptFloorPlan,
+        retry: true,
+      }),
+      focus_map: createActionTool({
+        description:
+          "Move the live map to an area while you talk about it: suburb, region, site, or landmark. Use whenever the conversation turns to a specific place so the user can see it. Add a label to drop a pin.",
+        args: z.object({
+          lat: z.number(),
+          lng: z.number(),
+          zoom: z.number().min(3).max(19).optional().describe("Map zoom, ~11 suburb, ~14 street"),
+          label: z.string().optional().describe("Optional pin label, e.g. the suburb or site name"),
+        }),
+        handler: internal.dwellaAgentTools.focusMap,
+        retry: true,
+      }),
       request_builder_outreach_approval: createActionTool({
         description: "Record that builder outreach needs explicit approval before any external contact.",
         args: z.object({

@@ -209,6 +209,48 @@ export const showConceptInColor = internalAction({
   },
 });
 
+export const showConceptFloorPlan = internalAction({
+  args: { conceptName: v.optional(v.string()) },
+  returns: v.any(),
+  handler: async (_ctx, args) => {
+    const conceptName = cleanText(args.conceptName, "the latest concept");
+    return commandResult(`Started drawing a concept floor plan for ${conceptName}.`, [
+      {
+        type: "render_concept_floor_plan",
+        target: "concepts",
+        payload: { conceptName: cleanOptionalText(args.conceptName) ?? "" },
+      },
+      openArtifact("concepts", "show_concept_floor_plan"),
+    ]);
+  },
+});
+
+export const focusMap = internalAction({
+  args: {
+    lat: v.number(),
+    lng: v.number(),
+    zoom: v.optional(v.number()),
+    label: v.optional(v.string()),
+  },
+  returns: v.any(),
+  handler: async (_ctx, args) => {
+    const label = cleanOptionalText(args.label);
+    return commandResult(`Moved the map to ${label ?? `${args.lat.toFixed(3)}, ${args.lng.toFixed(3)}`}.`, [
+      {
+        type: "focus_map",
+        target: "map",
+        payload: {
+          lat: args.lat,
+          lng: args.lng,
+          zoom: args.zoom,
+          ...(label ? { label } : {}),
+        },
+      },
+      openArtifact("map", "focus_map"),
+    ]);
+  },
+});
+
 export const requestBuilderOutreachApproval = internalAction({
   args: {
     builderName: v.optional(v.string()),

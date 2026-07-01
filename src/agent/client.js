@@ -14,7 +14,7 @@ export function createDwellaAgentClient({ endpoint, fetcher = fetch, storage = d
     return { id, status: "active" };
   }
 
-  async function sendTextMessage({ threadId, message, history = [], attachments = [], workspaceContext = null }) {
+  async function sendTextMessage({ threadId, message, history = [], attachments = [], workspaceContext = null, profile = null }) {
     const trimmed = String(message ?? "").trim();
     if (!trimmed) {
       return { status: "empty", message: null };
@@ -30,7 +30,7 @@ export function createDwellaAgentClient({ endpoint, fetcher = fetch, storage = d
         ? await fetcher(`${baseEndpoint}/runs`, {
             method: "POST",
             headers: await createAuthHeaders(),
-            body: createRunFormData({ threadId, continuationToken, message: trimmed, history, attachments: normalizedAttachments, files: uploadFiles, workspaceContext }),
+            body: createRunFormData({ threadId, continuationToken, message: trimmed, history, attachments: normalizedAttachments, files: uploadFiles, workspaceContext, profile }),
           })
         : await fetcher(`${baseEndpoint}/runs`, {
             method: "POST",
@@ -43,6 +43,7 @@ export function createDwellaAgentClient({ endpoint, fetcher = fetch, storage = d
               history: normalizeHistory(history),
               attachments: normalizedAttachments,
               workspaceContext: normalizeWorkspaceContext(workspaceContext),
+              profile: normalizeProfile(profile),
             }),
           });
 
@@ -63,12 +64,12 @@ export function createDwellaAgentClient({ endpoint, fetcher = fetch, storage = d
     }
   }
 
-  async function createVoiceSession({ threadId }) {
+  async function createVoiceSession({ threadId, profile = null }) {
     try {
       const response = await fetcher(`${baseEndpoint}/voice-session`, {
         method: "POST",
         headers: await createAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ threadId }),
+        body: JSON.stringify({ threadId, profile: normalizeProfile(profile) }),
       });
 
       if (!response.ok) {
@@ -173,7 +174,7 @@ async function readAgentFailureResponse(response) {
   }
 }
 
-function createRunFormData({ threadId, continuationToken, message, history, attachments, files, workspaceContext }) {
+function createRunFormData({ threadId, continuationToken, message, history, attachments, files, workspaceContext, profile }) {
   const form = new FormData();
   form.append("threadId", threadId);
   if (continuationToken) form.append("continuationToken", continuationToken);
@@ -182,6 +183,7 @@ function createRunFormData({ threadId, continuationToken, message, history, atta
   form.append("history", JSON.stringify(normalizeHistory(history)));
   form.append("attachments", JSON.stringify(attachments.map(stripAttachmentFile)));
   form.append("workspaceContext", JSON.stringify(normalizeWorkspaceContext(workspaceContext) ?? {}));
+  form.append("profile", JSON.stringify(normalizeProfile(profile) ?? {}));
   for (const attachment of files) {
     form.append("files", attachment.file, attachment.name);
   }
@@ -219,6 +221,16 @@ function normalizeHistory(history = []) {
     }))
     .filter((message) => message.content)
     .slice(-8);
+}
+
+function normalizeProfile(profile) {
+  if (!profile || typeof profile !== "object") return null;
+  const clean = {
+    name: String(profile.name ?? "").trim().slice(0, 120),
+    email: String(profile.email ?? "").trim().slice(0, 200),
+    phone: String(profile.phone ?? "").trim().slice(0, 40),
+  };
+  return clean.name || clean.email || clean.phone ? clean : null;
 }
 
 function normalizeWorkspaceContext(context) {

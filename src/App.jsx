@@ -664,6 +664,9 @@ function AgentShell() {
   );
   const initialArtifact = getInitialArtifact();
   const [thread] = React.useState(() => agentClient.getOrCreateThread());
+  const [userProfile, setUserProfile] = React.useState(() => loadUserProfile());
+  const [onboardingOpen, setOnboardingOpen] = React.useState(() => !loadUserProfile());
+  const userProfileRef = React.useRef(userProfile);
   const durableConversation = useDwellaThreadMessages({
     messagesQuery: api.dwellaAgent.listClientThreadMessages,
     streamingMessageUpdatesQuery: api.dwellaAgent.streamClientThreadUpdates,
@@ -753,6 +756,10 @@ function AgentShell() {
   React.useEffect(() => {
     workspaceRef.current = workspace;
   }, [workspace]);
+
+  React.useEffect(() => {
+    userProfileRef.current = userProfile;
+  }, [userProfile]);
 
   React.useEffect(() => {
     workspacePersistenceRef.current = workspacePersistence;
@@ -1009,6 +1016,34 @@ function AgentShell() {
     [agentWorkspaceStore, thread.id]
   );
 
+  const requestConceptFloorPlanFromCommand = React.useCallback(
+    (payload = {}) => {
+      if (!agentWorkspaceStore) return;
+      agentWorkspaceStore
+        .renderConceptFloorPlan(thread.id, { conceptName: payload.conceptName })
+        .catch((error) => console.error("Dwella concept floor plan request failed", error));
+    },
+    [agentWorkspaceStore, thread.id]
+  );
+
+  const focusMapFromCommand = React.useCallback(
+    (payload = {}) => {
+      if (!isFiniteNumber(payload.lat) || !isFiniteNumber(payload.lng)) return;
+      const zoom = isFiniteNumber(payload.zoom) ? Math.min(19, Math.max(3, Math.round(payload.zoom))) : 12;
+      workspaceActions.updateMapView({ lat: payload.lat, lng: payload.lng }, zoom);
+      const label = String(payload.label ?? "").trim();
+      if (label) {
+        workspaceActions.addMapMarker({
+          id: createModelMarkerId(),
+          label,
+          lat: payload.lat,
+          lng: payload.lng,
+        });
+      }
+    },
+    [workspaceActions]
+  );
+
   const applyScreenCommands = React.useCallback(
     (commands = []) => {
       if (!Array.isArray(commands)) return;
@@ -1068,6 +1103,14 @@ function AgentShell() {
           requestConceptColorFromCommand(command.payload);
         }
 
+        if (command?.type === "render_concept_floor_plan") {
+          requestConceptFloorPlanFromCommand(command.payload);
+        }
+
+        if (command?.type === "focus_map") {
+          focusMapFromCommand(command.payload);
+        }
+
         if (command?.type === "add_map_marker") {
           const marker = command.payload?.marker ?? command.payload;
           if (isFiniteNumber(marker?.lat) && isFiniteNumber(marker?.lng)) {
@@ -1091,7 +1134,7 @@ function AgentShell() {
         }
       }
     },
-    [exportDocumentForUser, generateConceptsFromCommand, requestConceptColorFromCommand, workspaceActions]
+    [exportDocumentForUser, focusMapFromCommand, generateConceptsFromCommand, requestConceptColorFromCommand, requestConceptFloorPlanFromCommand, workspaceActions]
   );
 
   const sendMessage = React.useCallback(
@@ -1134,6 +1177,7 @@ function AgentShell() {
           history: messages,
           attachments: validAttachments,
           workspaceContext: createWorkspaceContextForAgent(workspaceRef.current, activeArtifact),
+          profile: userProfileRef.current,
         });
         const assistantMessage = String(result?.assistantMessage ?? "").trim();
         if (assistantMessage) {
@@ -1420,9 +1464,29 @@ function AgentShell() {
         };
       }
 
+      if (name === "show_concept_floor_plan") {
+        requestConceptFloorPlanFromCommand(args);
+        openArtifact("concepts");
+        return {
+          ok: true,
+          artifact: "concepts",
+          status: "rendering",
+          message: "The concept floor plan is being drawn in the gallery.",
+        };
+      }
+
+      if (name === "focus_map") {
+        if (!isFiniteNumber(args.lat) || !isFiniteNumber(args.lng)) {
+          return { ok: false, error: "Map coordinates are required." };
+        }
+        focusMapFromCommand(args);
+        openArtifact("map");
+        return { ok: true, artifact: "map" };
+      }
+
       return { ok: false, error: `Unknown tool: ${name}` };
     },
-    [exportDocumentForUser, generateConceptsFromCommand, openArtifact, requestConceptColorFromCommand, workspaceActions]
+    [exportDocumentForUser, focusMapFromCommand, generateConceptsFromCommand, openArtifact, requestConceptColorFromCommand, requestConceptFloorPlanFromCommand, workspaceActions]
   );
 
   const handleRealtimeToolCall = React.useCallback(
@@ -1590,7 +1654,7 @@ function AgentShell() {
     setIsRealtimeConnecting(true);
     let session;
     try {
-      session = await agentClient.createVoiceSession({ threadId: thread.id });
+      session = await agentClient.createVoiceSession({ threadId: thread.id, profile: userProfileRef.current });
     } catch (error) {
       console.error("Dwella realtime voice session failed", error);
       setIsRealtimeConnecting(false);
@@ -1785,7 +1849,7 @@ function AgentShell() {
 
       let session;
       try {
-        session = await agentClient.createVoiceSession({ threadId: thread.id });
+        session = await agentClient.createVoiceSession({ threadId: thread.id, profile: userProfileRef.current });
       } catch (error) {
         approvedStream.getTracks().forEach((track) => track.stop());
         console.error("Dwella voice session failed", error);
@@ -1899,16 +1963,17 @@ function AgentShell() {
         <a className="agent-rail__brand" href="/" aria-label="Dwella home">
           <AgentIcon name="home" />
         </a>
-        <button
-          className="agent-rail__button agent-rail__new-conversation"
-          type="button"
-          aria-label="Start a new conversation"
-          title="New conversation"
-          onClick={startNewConversation}
-        >
-          <SquarePen className="agent-icon" aria-hidden="true" strokeWidth={1.35} absoluteStrokeWidth />
-        </button>
         <nav className="agent-rail__menu" aria-label="Workspace tools">
+          <button
+            className="agent-rail__button"
+            type="button"
+            aria-label="Start a new conversation"
+            title="New conversation"
+            onClick={startNewConversation}
+          >
+            <SquarePen className="agent-icon" aria-hidden="true" strokeWidth={1.35} absoluteStrokeWidth />
+          </button>
+          <span className="agent-rail__divider" aria-hidden="true" />
           {agentNavItems.map((item) => (
             <button
               className={(item.icon === "chat" && !artifactOpen) || item.icon === activeArtifact ? "agent-rail__button is-active" : "agent-rail__button"}
@@ -2131,7 +2196,89 @@ function AgentShell() {
           />
         </div>
       </section>
+
+      {onboardingOpen ? (
+        <OnboardingSheet
+          onComplete={(profile) => {
+            saveUserProfile(profile);
+            setUserProfile(profile);
+            setOnboardingOpen(false);
+          }}
+          onSkip={() => setOnboardingOpen(false)}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function OnboardingSheet({ onComplete, onSkip }) {
+  const [name, setName] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const canStart = name.trim().length > 0;
+
+  const submit = (event) => {
+    event.preventDefault();
+    if (!canStart) return;
+    onComplete({ name: name.trim(), email: email.trim(), phone: phone.trim() });
+  };
+
+  return (
+    <div className="onboarding-scrim">
+      <motion.section
+        className="onboarding-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="onboarding-title"
+        initial={{ y: 48, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 340, damping: 32 }}
+      >
+        <span className="onboarding-sheet__handle" aria-hidden="true" />
+        <h2 id="onboarding-title">Before we dream</h2>
+        <p>A couple of details so Dwella knows who she's building with.</p>
+        <form onSubmit={submit}>
+          <label>
+            <span>Name</span>
+            <input
+              autoComplete="name"
+              autoFocus
+              placeholder="What should Dwella call you?"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Email</span>
+            <input
+              autoComplete="email"
+              inputMode="email"
+              placeholder="you@example.com"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label>
+            <span>Phone</span>
+            <input
+              autoComplete="tel"
+              inputMode="tel"
+              placeholder="04xx xxx xxx"
+              type="tel"
+              value={phone}
+              onChange={(event) => setPhone(event.target.value)}
+            />
+          </label>
+          <button className="onboarding-sheet__start" type="submit" disabled={!canStart}>
+            Start dreaming
+          </button>
+        </form>
+        <button className="onboarding-sheet__skip" type="button" onClick={onSkip}>
+          Skip for now
+        </button>
+      </motion.section>
+    </div>
   );
 }
 
@@ -2300,8 +2447,7 @@ function ConceptsArtifact({ threadId, conceptStore }) {
 function ConvexConceptsArtifact({ threadId, conceptStore }) {
   const conceptData = useQuery(api.conceptDesigner.listThreadConcepts, { threadId });
   const [activeIndex, setActiveIndex] = React.useState(0);
-  const [detailsOpen, setDetailsOpen] = React.useState(false);
-  const [sketchPreference, setSketchPreference] = React.useState({});
+  const [viewPreference, setViewPreference] = React.useState({});
 
   const concepts = conceptData?.concepts ?? [];
   const conceptCount = concepts.length;
@@ -2314,7 +2460,6 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
 
   const goTo = (index) => {
     setActiveIndex(Math.max(0, Math.min(conceptCount - 1, index)));
-    setDetailsOpen(false);
   };
 
   if (conceptData === undefined) {
@@ -2330,17 +2475,49 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
     );
   }
 
-  const wantsSketch = Boolean(sketchPreference[concept.id]);
-  const showColor = Boolean(concept.heroImageUrl) && !wantsSketch;
-  const displayedImage = showColor ? concept.heroImageUrl : concept.sketchImageUrl;
+  const requestedView = viewPreference[concept.id] ?? "auto";
+  const activeView =
+    requestedView === "auto" ? (concept.heroImageUrl ? "colour" : "sketch") : requestedView;
   const isColoring = concept.colorStatus === "rendering";
+  const isPlanning = concept.floorPlanStatus === "rendering";
 
-  const requestColor = () => {
-    setSketchPreference((current) => ({ ...current, [concept.id]: false }));
-    conceptStore
-      ?.renderConceptColor(threadId, { optionId: concept.id })
-      .catch((error) => console.error("Dwella concept colour request failed", error));
+  const setView = (view) => setViewPreference((current) => ({ ...current, [concept.id]: view }));
+
+  const selectColour = () => {
+    setView("colour");
+    if (!concept.heroImageUrl && !isColoring) {
+      conceptStore
+        ?.renderConceptColor(threadId, { optionId: concept.id })
+        .catch((error) => console.error("Dwella concept colour request failed", error));
+    }
   };
+
+  const selectPlan = () => {
+    setView("plan");
+    if (!concept.floorPlanImageUrl && !isPlanning) {
+      conceptStore
+        ?.renderConceptFloorPlan(threadId, { optionId: concept.id })
+        .catch((error) => console.error("Dwella concept floor plan request failed", error));
+    }
+  };
+
+  const displayedImage =
+    activeView === "plan"
+      ? concept.floorPlanImageUrl
+      : activeView === "colour"
+        ? concept.heroImageUrl ?? concept.sketchImageUrl
+        : concept.sketchImageUrl;
+  const busyLabel =
+    activeView === "plan" && !concept.floorPlanImageUrl && isPlanning
+      ? "Drawing the plan..."
+      : activeView === "colour" && !concept.heroImageUrl && isColoring
+        ? "Painting it in..."
+        : "";
+  const views = [
+    { key: "sketch", label: "Sketch", onSelect: () => setView("sketch"), busy: false },
+    { key: "colour", label: "Colour", onSelect: selectColour, busy: isColoring },
+    { key: "plan", label: "Plan", onSelect: selectPlan, busy: isPlanning },
+  ];
 
   return (
     <div className="artifact-concepts artifact-concepts--stage">
@@ -2359,9 +2536,9 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
         <figure className="concept-stage__frame">
           {displayedImage ? (
             <img
-              className={isColoring ? "concept-stage__image is-coloring" : "concept-stage__image"}
+              className={busyLabel ? "concept-stage__image is-coloring" : "concept-stage__image"}
               src={displayedImage}
-              alt={showColor ? `${concept.name} colour concept render` : `${concept.name} concept sketch`}
+              alt={`${concept.name} ${activeView === "plan" ? "concept floor plan" : activeView === "colour" ? "colour concept render" : "concept sketch"}`}
             />
           ) : concept.status === "failed" ? (
             <div className="concept-stage__fallback">
@@ -2370,10 +2547,10 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
           ) : (
             <ConceptStageSkeleton />
           )}
-          {isColoring ? (
+          {busyLabel ? (
             <div className="concept-stage__coloring" aria-live="polite">
               <Diamond className="concept-stage__coloring-diamond" />
-              <span>Painting it in...</span>
+              <span>{busyLabel}</span>
             </div>
           ) : null}
         </figure>
@@ -2392,42 +2569,31 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
 
       <div className="concept-stage__caption">
         <h3>{concept.name}</h3>
-        <p>{concept.summary}</p>
       </div>
 
-      <div className="concept-stage__actions">
-        {concept.sketchImageUrl && !concept.heroImageUrl && !isColoring ? (
-          <button className="concept-stage__action concept-stage__action--primary" type="button" onClick={requestColor}>
-            See it in colour
-          </button>
-        ) : null}
-        {concept.heroImageUrl && concept.sketchImageUrl ? (
-          <div className="concept-stage__toggle" role="group" aria-label="Sketch or colour view">
+      {concept.status === "ready" ? (
+        <div className="concept-views" role="group" aria-label="Concept views">
+          {views.map((view) => (
             <button
-              className={wantsSketch ? "is-active" : ""}
+              className={view.key === activeView ? "is-active" : ""}
+              key={view.key}
               type="button"
-              onClick={() => setSketchPreference((current) => ({ ...current, [concept.id]: true }))}
+              aria-pressed={view.key === activeView}
+              onClick={view.onSelect}
             >
-              Sketch
+              {view.key === activeView ? (
+                <motion.span
+                  className="toggle-indicator concept-views__indicator"
+                  layoutId="concept-view-indicator"
+                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                />
+              ) : null}
+              <span className="toggle-label">{view.label}</span>
+              {view.busy ? <span className="concept-views__busy" aria-hidden="true" /> : null}
             </button>
-            <button
-              className={wantsSketch ? "" : "is-active"}
-              type="button"
-              onClick={() => setSketchPreference((current) => ({ ...current, [concept.id]: false }))}
-            >
-              Colour
-            </button>
-          </div>
-        ) : null}
-        <button
-          className="concept-stage__action"
-          type="button"
-          aria-expanded={detailsOpen}
-          onClick={() => setDetailsOpen((open) => !open)}
-        >
-          {detailsOpen ? "Hide details" : "Details"}
-        </button>
-      </div>
+          ))}
+        </div>
+      ) : null}
 
       {conceptCount > 1 ? (
         <div className="concept-stage__dots" role="tablist" aria-label="Concept directions">
@@ -2445,29 +2611,7 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
         </div>
       ) : null}
 
-      {detailsOpen ? (
-        <div className="concept-stage__details">
-          {concept.keyIdea ? <p className="concept-stage__idea">{concept.keyIdea}</p> : null}
-          <div className="concept-stage__meta">
-            <span>{concept.storeys === 1 ? "Single storey" : `${concept.storeys} storeys`}</span>
-            {concept.bedrooms ? <span>{concept.bedrooms} bed</span> : null}
-            {concept.bathrooms ? <span>{concept.bathrooms} bath</span> : null}
-            {concept.roofForm ? <span>{concept.roofForm}</span> : null}
-            {concept.materials.map((material) => (
-              <span key={material}>{material}</span>
-            ))}
-          </div>
-          {concept.rationale ? <p>{concept.rationale}</p> : null}
-          {concept.riskFlags.length ? (
-            <ul aria-label="Things still to verify">
-              {concept.riskFlags.map((flag) => (
-                <li key={flag}>{flag}</li>
-              ))}
-            </ul>
-          ) : null}
-          <p className="concept-disclaimer">{conceptData.disclaimer}</p>
-        </div>
-      ) : null}
+      <p className="concept-disclaimer">{conceptData.disclaimer}</p>
     </div>
   );
 }
@@ -3150,6 +3294,31 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+const userProfileStorageKey = "dwella.agent.profile";
+
+function loadUserProfile() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(userProfileStorageKey));
+    if (!saved || typeof saved !== "object") return null;
+    const profile = {
+      name: String(saved.name ?? "").trim().slice(0, 120),
+      email: String(saved.email ?? "").trim().slice(0, 200),
+      phone: String(saved.phone ?? "").trim().slice(0, 40),
+    };
+    return profile.name || profile.email || profile.phone ? profile : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveUserProfile(profile) {
+  try {
+    window.localStorage.setItem(userProfileStorageKey, JSON.stringify(profile));
+  } catch {
+    // Profile persistence is best-effort only.
+  }
 }
 
 function startNewConversation() {

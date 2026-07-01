@@ -74,11 +74,10 @@ export function createAgentWorkspaceStore(client) {
       return client.action(api.conceptDesigner.generateConceptPackage, args);
     },
     renderConceptColor(threadId, { optionId, conceptName } = {}) {
-      const args = { threadId };
-      if (optionId) args.optionId = optionId;
-      const cleanName = String(conceptName ?? "").trim();
-      if (!optionId && cleanName) args.conceptName = cleanName;
-      return client.action(api.conceptDesigner.renderConceptColor, args);
+      return client.action(api.conceptDesigner.renderConceptColor, conceptRenderArgs(threadId, { optionId, conceptName }));
+    },
+    renderConceptFloorPlan(threadId, { optionId, conceptName } = {}) {
+      return client.action(api.conceptDesigner.renderConceptFloorPlan, conceptRenderArgs(threadId, { optionId, conceptName }));
     },
     async uploadDocumentAsset(threadId, file) {
       const uploadUrl = await client.mutation(api.agentWorkspace.generateDocumentAssetUploadUrl, { threadId });
@@ -101,6 +100,14 @@ export function createAgentWorkspaceStore(client) {
       return result;
     },
   };
+}
+
+function conceptRenderArgs(threadId, { optionId, conceptName } = {}) {
+  const args = { threadId };
+  if (optionId) args.optionId = optionId;
+  const cleanName = String(conceptName ?? "").trim();
+  if (!optionId && cleanName) args.conceptName = cleanName;
+  return args;
 }
 
 function sanitizeConceptInput(concept) {
