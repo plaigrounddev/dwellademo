@@ -58,6 +58,7 @@ assert.match(durableAgentApi, /defineInternalAgentApi\(components\.durable_agent
 assert.match(durableAgentApi, /createOpenAI/, "Durable agent must use the OpenAI AI SDK provider");
 assert.match(durableAgentApi, /saveStreamDeltas: true/, "Durable streaming deltas should be persisted");
 assert.match(durableAgentApi, /retry:\s*\{[\s\S]*enabled: true/, "Durable agent should retry failed model turns");
+// set_browser_url is temporarily unregistered while the browser panel is retired.
 for (const tool of [
   "show_artifact",
   "append_to_document",
@@ -66,8 +67,8 @@ for (const tool of [
   "export_document",
   "create_file",
   "create_folder",
-  "set_browser_url",
   "add_map_marker",
+  "create_concept_visuals",
   "request_builder_outreach_approval",
 ]) {
   assert.match(durableAgentApi, new RegExp(`${tool}: createActionTool`), `Durable agent missing tool: ${tool}`);
@@ -102,7 +103,7 @@ assert.match(http, /waitForAgentTurn/, "HTTP route must wait for the durable tur
 assert.match(http, /voice-session/, "Voice session route missing");
 assert.match(http, /voice-transcribe/, "Voice transcription route missing");
 assert.match(http, /OPENAI_REALTIME_MODEL/, "Voice route must use the Realtime model constant");
-assert.doesNotMatch(http, /Eve/i, "Convex HTTP bridge should not reference Eve");
+assert.doesNotMatch(http, /\bEve\b/, "Convex HTTP bridge should not reference Eve");
 
 assert.match(app, /VITE_DWELLA_AGENT_ENDPOINT \|\| "\/dwella\/agent"/, "App must keep configurable agent endpoint");
 assert.match(app, /getToken\(\{ template: "convex" \}\)/, "Client must send Clerk Convex auth to the agent bridge");

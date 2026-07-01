@@ -163,7 +163,6 @@ const agentNavItems = [
   { label: "Document editor", icon: "doc" },
   { label: "Concept gallery", icon: "concepts" },
   { label: "Live map", icon: "map" },
-  { label: "Browser sandbox", icon: "browser" },
   { label: "Files", icon: "files" }
 ];
 
@@ -171,11 +170,11 @@ const artifactMenuItems = [
   { label: "Document editor", icon: "doc" },
   { label: "Concept gallery", icon: "concepts" },
   { label: "Live map", icon: "map" },
-  { label: "Browser sandbox", icon: "browser" },
   { label: "Files workspace", icon: "files" }
 ];
 
-const artifactTargets = ["doc", "map", "browser", "files", "concepts"];
+// "browser" is temporarily retired from the UI; workspace state still carries it.
+const artifactTargets = ["doc", "map", "files", "concepts"];
 
 const agentUserButtonAppearance = {
   elements: {
@@ -1367,13 +1366,6 @@ function AgentShell() {
         return { ok: true, artifact: "files", name: nameToCreate };
       }
 
-      if (name === "set_browser_url") {
-        const url = String(args.url ?? "").trim() || "about:blank";
-        workspaceActions.updateBrowserUrl(url);
-        openArtifact("browser");
-        return { ok: true, artifact: "browser", url };
-      }
-
       if (name === "add_map_marker") {
         if (!isFiniteNumber(args.lat) || !isFiniteNumber(args.lng)) {
           return { ok: false, error: "Marker coordinates are required." };
@@ -2265,7 +2257,7 @@ function ArtifactWorkspace({ activeArtifact, workspace, actions, openArtifact, t
     return <ConceptsArtifact threadId={threadId} />;
   }
 
-  return <BrowserArtifact workspace={workspace} actions={actions} />;
+  return <DocumentArtifact workspace={workspace} actions={actions} openArtifact={openArtifact} />;
 }
 
 function ConceptsArtifact({ threadId }) {
@@ -3058,7 +3050,7 @@ function startNewConversation() {
 }
 
 function getInitialArtifact() {
-  return getRequestedArtifact() ?? "browser";
+  return getRequestedArtifact() ?? "doc";
 }
 
 function getRequestedArtifact() {

@@ -5,7 +5,7 @@ import { components, internal } from "./_generated/api";
 import { env } from "./_generated/server";
 import { DWELLA_AGENT_INSTRUCTIONS } from "./dwellaConversationContract.js";
 
-const artifactTarget = z.enum(["doc", "map", "browser", "files", "concepts"]);
+const artifactTarget = z.enum(["doc", "map", "files", "concepts"]);
 
 const conceptBriefSchema = z.object({
   location: z.string().optional(),
@@ -113,12 +113,6 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, a
         description: "Create a folder in the current agent thread workspace.",
         args: z.object({ name: z.string() }),
         handler: internal.dwellaAgentTools.createFolder,
-        retry: true,
-      }),
-      set_browser_url: createActionTool({
-        description: "Set the sandbox browser address field.",
-        args: z.object({ url: z.string() }),
-        handler: internal.dwellaAgentTools.setBrowserUrl,
         retry: true,
       }),
       add_map_marker: createActionTool({

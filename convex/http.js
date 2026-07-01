@@ -446,7 +446,7 @@ function realtimeWorkspaceTools() {
       description: "Show one workspace artifact panel in the right side of the app.",
       parameters: {
         type: "object",
-        properties: { target: { type: "string", enum: ["doc", "map", "browser", "files", "concepts"] } },
+        properties: { target: { type: "string", enum: ["doc", "map", "files", "concepts"] } },
         required: ["target"],
       },
     },
@@ -496,12 +496,6 @@ function realtimeWorkspaceTools() {
       name: "create_folder",
       description: "Create a folder in the current agent thread workspace.",
       parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
-    },
-    {
-      type: "function",
-      name: "set_browser_url",
-      description: "Set the sandbox browser address field.",
-      parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
     },
     {
       type: "function",
