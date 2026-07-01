@@ -2235,7 +2235,7 @@ function OnboardingSheet({ onComplete, onSkip }) {
         transition={{ type: "spring", stiffness: 340, damping: 32 }}
       >
         <h2 id="onboarding-title">Before we dream</h2>
-        <p>A couple of details so Dwella knows who she's building with.</p>
+        <p>So Dwella knows who she's building with.</p>
         <form onSubmit={submit}>
           <label>
             <span>Name</span>
@@ -2270,7 +2270,7 @@ function OnboardingSheet({ onComplete, onSkip }) {
             />
           </label>
           <button className="onboarding-sheet__start" type="submit" disabled={!canStart}>
-            Start dreaming
+            Get started
           </button>
         </form>
         <button className="onboarding-sheet__skip" type="button" onClick={onSkip}>

@@ -2992,9 +2992,10 @@ button {
 .onboarding-sheet h2 {
   margin: 0;
   color: #181918;
-  font-size: 1.16rem;
-  font-weight: 600;
+  font-size: 1.42rem;
+  font-weight: 500;
   letter-spacing: 0;
+  text-wrap: balance;
 }
 
 .onboarding-sheet > p {
@@ -3002,6 +3003,7 @@ button {
   color: rgba(24, 25, 24, 0.58);
   font-size: 0.88rem;
   line-height: 1.5;
+  text-wrap: pretty;
 }
 
 .onboarding-sheet form {
@@ -3058,7 +3060,8 @@ button {
 }
 
 .onboarding-sheet__start:disabled {
-  opacity: 0.35;
+  background: #dbdad5;
+  color: rgba(255, 255, 255, 0.9);
   cursor: default;
 }
 
