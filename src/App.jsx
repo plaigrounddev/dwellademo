@@ -423,11 +423,7 @@ function AgentShell() {
       endpoint: agentEndpoint,
       getAuthToken: async () => {
         if (!clerkLoaded || !isSignedIn) return null;
-        try {
-          return await getToken({ template: "convex" });
-        } catch {
-          return await getToken();
-        }
+        return await getToken({ template: "convex" });
       },
     }),
     [clerkLoaded, getToken, isSignedIn]
