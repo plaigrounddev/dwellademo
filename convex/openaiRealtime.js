@@ -5,6 +5,9 @@ export function buildDwellaRealtimeSessionConfig({
   instructions,
   tools,
   transcriptionModel = "gpt-4o-transcribe",
+  transcriptionLanguage = null,
+  transcriptionPrompt = null,
+  noiseReductionType = "far_field",
 }) {
   return {
     type: "realtime",
@@ -16,19 +19,38 @@ export function buildDwellaRealtimeSessionConfig({
     reasoning: { effort: "low" },
     audio: {
       input: {
+        noise_reduction: { type: noiseReductionType },
         turn_detection: {
-          type: "server_vad",
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 500,
+          type: "semantic_vad",
+          eagerness: "low",
           create_response: true,
           interrupt_response: true,
         },
-        transcription: { model: transcriptionModel },
+        transcription: buildRealtimeTranscriptionConfig({
+          model: transcriptionModel,
+          language: transcriptionLanguage,
+          prompt: transcriptionPrompt,
+        }),
       },
       output: { voice: "marin" },
     },
   };
+}
+
+export function buildRealtimeTranscriptionConfig({
+  model = "gpt-4o-transcribe",
+  language = null,
+  prompt = null,
+} = {}) {
+  const config = { model };
+  if (language) config.language = language;
+  if (prompt && supportsTranscriptionPrompt(model)) config.prompt = prompt;
+  return config;
+}
+
+function supportsTranscriptionPrompt(model) {
+  const normalized = String(model ?? "").toLowerCase();
+  return normalized && normalized !== "gpt-realtime-whisper" && !normalized.includes("diarize");
 }
 
 export async function createOpenAIRealtimeClientSecret({
@@ -36,6 +58,9 @@ export async function createOpenAIRealtimeClientSecret({
   instructions,
   tools,
   transcriptionModel,
+  transcriptionLanguage,
+  transcriptionPrompt,
+  noiseReductionType,
   safetyIdentifier = "dwella-demo-user",
   fetcher = fetch,
   timeoutMs = 10_000,
@@ -65,6 +90,9 @@ export async function createOpenAIRealtimeClientSecret({
           instructions,
           tools,
           transcriptionModel,
+          transcriptionLanguage,
+          transcriptionPrompt,
+          noiseReductionType,
         }),
       }),
     });

@@ -225,6 +225,23 @@ function AgentIcon({ name }) {
   return <Icon className="agent-icon" aria-hidden="true" strokeWidth={1.35} absoluteStrokeWidth />;
 }
 
+function cleanVoiceTranscript(value) {
+  const transcript = String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!transcript || looksLikeNonSpeechTranscript(transcript)) return "";
+  return transcript;
+}
+
+function looksLikeNonSpeechTranscript(value) {
+  const visible = Array.from(String(value ?? "")).filter((char) => /\S/u.test(char));
+  if (!visible.length) return true;
+
+  const speechLikeCount = visible.filter((char) => /[\p{L}\p{N}]/u.test(char)).length;
+  return speechLikeCount === 0;
+}
+
 function appendPlainDocumentText(content, text) {
   const cleanText = String(text ?? "").trim();
   if (!cleanText) return content ?? "";
@@ -1454,12 +1471,14 @@ function AgentShell() {
       try {
         const result = await agentClient.transcribeVoice({ threadId: thread.id, audioBlob });
         applyScreenCommands(result?.screenCommands);
+        const transcript = cleanVoiceTranscript(result?.transcript);
+        const documentEditText = cleanVoiceTranscript(result?.documentEdit?.text);
 
-        if (result?.transcript) {
-          setMessages((current) => [...current, { id: `voice-user-${Date.now()}`, role: "user", content: result.transcript }]);
+        if (transcript) {
+          setMessages((current) => [...current, { id: `voice-user-${Date.now()}`, role: "user", content: transcript }]);
         }
-        if (result?.documentEdit) {
-          appendVoiceEdit(result.documentEdit);
+        if (result?.documentEdit && documentEditText) {
+          appendVoiceEdit({ ...result.documentEdit, text: documentEditText });
         }
         if (result?.assistantMessage || result?.message) {
           setMessages((current) => [
@@ -1713,7 +1732,10 @@ function AgentShell() {
       }
 
       if (event.type === "conversation.item.input_audio_transcription.completed" && event.transcript) {
-        setMessages((current) => [...current, { id: `realtime-user-${Date.now()}`, role: "user", content: event.transcript }]);
+        const transcript = cleanVoiceTranscript(event.transcript);
+        if (transcript) {
+          setMessages((current) => [...current, { id: `realtime-user-${Date.now()}`, role: "user", content: transcript }]);
+        }
       }
 
       if (

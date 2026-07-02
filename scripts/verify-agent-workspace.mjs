@@ -125,6 +125,16 @@ assert.doesNotMatch(vercelConfig, /experimentalServices|_eve_internal|framework"
 
 assert.match(realtimeWrapper, /realtime\/client_secrets/, "Realtime client secret endpoint missing");
 assert.match(realtimeWrapper, /OPENAI_REALTIME_MODEL = "gpt-realtime-2"/, "Realtime 2 model missing from Convex wrapper");
+assert.match(realtimeWrapper, /type: "semantic_vad"/, "Realtime turn detection should use semantic VAD");
+assert.match(realtimeWrapper, /eagerness: "low"/, "Realtime semantic VAD should wait for slower user turns");
+assert.match(realtimeWrapper, /interrupt_response: true/, "Realtime voice should still allow user barge-in");
+assert.match(realtimeWrapper, /noise_reduction/, "Realtime input audio should enable noise reduction");
+assert.match(realtimeWrapper, /transcriptionLanguage = null/, "Realtime transcription should default to auto language detection");
+assert.doesNotMatch(realtimeWrapper, /DWELLA_TRANSCRIPTION_LANGUAGE = "en"/, "Realtime transcription must not default to English-only");
+assert.match(http, /cleanVoiceTranscript/, "Voice transcription route should filter bogus speech artifacts");
+assert.doesNotMatch(http, /transcriptionForm\.append\("language"/, "Voice transcription route should not force a single language");
+assert.doesNotMatch(http, /source: "voice_session"/, "Starting a voice session should not auto-open the document editor");
+assert.match(app, /cleanVoiceTranscript/, "App should filter bogus live voice transcripts before display");
 assert.match(documentExport, /PDFDocument/, "Document export helper must generate real PDF bytes");
 assert.match(documentExport, /application\/msword/, "Document export helper must support DOC handoff");
 

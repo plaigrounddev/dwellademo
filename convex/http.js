@@ -155,7 +155,7 @@ async function handleVoiceSession(ctx, request) {
     model: OPENAI_REALTIME_MODEL,
     clientSecret: realtimeSecret.clientSecret,
     expiresAt: realtimeSecret.expiresAt,
-    screenCommands: [{ type: "open_artifact", target: "doc", payload: { source: "voice_session" } }],
+    screenCommands: [],
   });
 }
 
@@ -195,10 +195,11 @@ async function handleVoiceTranscribe(ctx, request) {
   }
 
   const transcriptionForm = new FormData();
+  const transcriptionModel = env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-transcribe";
   transcriptionForm.append("file", audio, "dwella-voice-note.webm");
-  transcriptionForm.append("model", env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-transcribe");
+  transcriptionForm.append("model", transcriptionModel);
   transcriptionForm.append("response_format", "json");
-  transcriptionForm.append("prompt", "Transcribe a concise homebuilding project note for a document editor.");
+  transcriptionForm.append("temperature", "0");
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 20_000);
@@ -225,7 +226,7 @@ async function handleVoiceTranscribe(ctx, request) {
     return jsonResponse(request, { status: "error", error: "voice_transcription_rejected" }, 502);
   }
 
-  const transcript = cleanText(data?.text);
+  const transcript = cleanVoiceTranscript(data?.text);
   if (!transcript) {
     return jsonResponse(request, { status: "empty", threadId });
   }
@@ -713,6 +714,22 @@ function cleanFilename(value) {
 function cleanText(value, fallback = "") {
   const trimmed = String(value ?? "").trim();
   return trimmed || fallback;
+}
+
+function cleanVoiceTranscript(value) {
+  const transcript = cleanText(value)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!transcript || looksLikeNonSpeechTranscript(transcript)) return "";
+  return transcript;
+}
+
+function looksLikeNonSpeechTranscript(value) {
+  const visible = Array.from(String(value ?? "")).filter((char) => /\S/u.test(char));
+  if (!visible.length) return true;
+
+  const speechLikeCount = visible.filter((char) => /[\p{L}\p{N}]/u.test(char)).length;
+  return speechLikeCount === 0;
 }
 
 function sleep(ms) {
