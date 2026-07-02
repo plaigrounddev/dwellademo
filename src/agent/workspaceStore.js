@@ -79,6 +79,14 @@ export function createAgentWorkspaceStore(client) {
     renderConceptFloorPlan(threadId, { optionId, conceptName } = {}) {
       return client.action(api.conceptDesigner.renderConceptFloorPlan, conceptRenderArgs(threadId, { optionId, conceptName }));
     },
+    renderConceptView(threadId, { optionId, conceptName, view } = {}) {
+      const cleanView = String(view ?? "").trim();
+      if (!cleanView) return Promise.resolve(null);
+      return client.action(api.conceptDesigner.renderConceptView, {
+        ...conceptRenderArgs(threadId, { optionId, conceptName }),
+        view: cleanView,
+      });
+    },
     async uploadDocumentAsset(threadId, file) {
       const uploadUrl = await client.mutation(api.agentWorkspace.generateDocumentAssetUploadUrl, { threadId });
       const uploadResponse = await fetch(uploadUrl, {

@@ -105,6 +105,20 @@ export default defineSchema({
     .index("by_packageId", ["packageId"])
     .index("by_ownerTokenIdentifier_and_threadId", ["ownerTokenIdentifier", "threadId"]),
 
+  agentConceptViews: defineTable({
+    optionId: v.id("agentConceptOptions"),
+    threadId: v.string(),
+    ownerTokenIdentifier: v.string(),
+    label: v.string(),
+    request: v.string(),
+    status: v.union(v.literal("rendering"), v.literal("ready"), v.literal("failed")),
+    imageId: v.optional(v.id("_storage")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_optionId", ["optionId"])
+    .index("by_ownerTokenIdentifier_and_threadId", ["ownerTokenIdentifier", "threadId"]),
+
   agentMapMarkers: defineTable({
     threadId: v.string(),
     ownerTokenIdentifier: v.optional(v.string()),

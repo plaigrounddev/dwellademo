@@ -552,6 +552,20 @@ function realtimeWorkspaceTools() {
     },
     {
       type: "function",
+      name: "show_concept_view",
+      description:
+        "Create another view of an existing concept, derived from its locked front sketch so the design stays identical: e.g. the back of the home, the alfresco, the kitchen, or a street view.",
+      parameters: {
+        type: "object",
+        properties: {
+          conceptName: { type: "string", description: "Name of the concept; omit for the latest one" },
+          view: { type: "string", description: "What to show, e.g. 'the back of the home'" },
+        },
+        required: ["view"],
+      },
+    },
+    {
+      type: "function",
       name: "show_concept_floor_plan",
       description:
         "Draw a concept floor plan image for a concept direction in the gallery: top-down, white background, room labels. Concept-only, never construction documentation.",

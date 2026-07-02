@@ -127,7 +127,7 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, a
       }),
       create_concept_visuals: createActionTool({
         description:
-          "Turn the user's dream-home brief into 2 to 4 distinct visual concept directions. Each direction gets a realistic exterior render and a presentation elevation sketch in the concept gallery. Design the concepts yourself first: distinct names, styles, storeys, roof forms, real generic materials (never invented brands), and honest risk flags. Concept design only, never permit-ready.",
+          "Turn the user's dream-home brief into 2 to 4 distinct visual concept directions. Each direction renders as a full front concept sketch of the home in its setting; colour, floor plan and other views are derived from that sketch later. Design the concepts yourself first: distinct names, styles, storeys, roof forms, real generic materials (never invented brands), and honest risk flags. Concept design only, never permit-ready.",
         args: z.object({
           briefSummary: z.string().optional().describe("One warm sentence capturing the user's dream"),
           brief: conceptBriefSchema.optional(),
@@ -143,6 +143,16 @@ export const chatAgentHandler = streamHandlerAction(components.durable_agents, a
           conceptName: z.string().optional().describe("Name of the concept to colour; omit for the latest one"),
         }),
         handler: internal.dwellaAgentTools.showConceptInColor,
+        retry: true,
+      }),
+      show_concept_view: createActionTool({
+        description:
+          "Create another view of an existing concept, derived from its locked front sketch so the design stays identical: for example the back of the home, the alfresco, the kitchen, or a street view. Use when the user asks to see a different angle or part of a concept.",
+        args: z.object({
+          conceptName: z.string().optional().describe("Name of the concept; omit for the latest one"),
+          view: z.string().describe("What to show, e.g. 'the back of the home', 'the kitchen and living space'"),
+        }),
+        handler: internal.dwellaAgentTools.showConceptView,
         retry: true,
       }),
       show_concept_floor_plan: createActionTool({

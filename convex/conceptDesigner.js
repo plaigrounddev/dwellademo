@@ -223,6 +223,128 @@ export const markOptionForFloorPlan = internalMutation({
   },
 });
 
+export const renderConceptView = action({
+  args: {
+    threadId: v.string(),
+    optionId: v.optional(v.id("agentConceptOptions")),
+    conceptName: v.optional(v.string()),
+    view: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity?.tokenIdentifier) {
+      throw new Error("Not authenticated");
+    }
+    const request = cleanText(args.view).slice(0, 300);
+    if (!request) return null;
+
+    const viewId = await ctx.runMutation(internal.conceptDesigner.createViewRow, {
+      threadId: cleanText(args.threadId).slice(0, 160),
+      ownerTokenIdentifier: identity.tokenIdentifier,
+      optionId: args.optionId,
+      conceptName: cleanText(args.conceptName).slice(0, 160),
+      request,
+    });
+    if (viewId) {
+      await ctx.scheduler.runAfter(0, internal.conceptDesigner.renderViewImage, { viewId });
+    }
+    return null;
+  },
+});
+
+export const createViewRow = internalMutation({
+  args: {
+    threadId: v.string(),
+    ownerTokenIdentifier: v.string(),
+    optionId: v.optional(v.id("agentConceptOptions")),
+    conceptName: v.optional(v.string()),
+    request: v.string(),
+  },
+  returns: v.union(v.id("agentConceptViews"), v.null()),
+  handler: async (ctx, args) => {
+    const option = await findOwnedOption(ctx, args);
+    if (!option || option.status !== "ready" || !option.sketchImageId) return null;
+    const now = Date.now();
+    const label = args.request.charAt(0).toUpperCase() + args.request.slice(1, 48);
+    return await ctx.db.insert("agentConceptViews", {
+      optionId: option._id,
+      threadId: option.threadId,
+      ownerTokenIdentifier: option.ownerTokenIdentifier,
+      label,
+      request: args.request,
+      status: "rendering",
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const renderViewImage = internalAction({
+  args: { viewId: v.id("agentConceptViews") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const view = await ctx.runQuery(internal.conceptDesigner.getViewForRender, { viewId: args.viewId });
+    if (!view?.option) return null;
+
+    const patch = { updatedAt: Date.now() };
+    try {
+      const sketchBlob = view.option.sketchImageId ? await ctx.storage.get(view.option.sketchImageId) : null;
+      if (!sketchBlob) throw new Error("The concept sketch is missing.");
+      const image = await colorizeImage({
+        image: sketchBlob,
+        prompt: buildViewPrompt(view.option, view.request),
+        apiKey: env.OPENAI_API_KEY,
+      });
+      patch.imageId = await ctx.storage.store(image);
+      patch.status = "ready";
+    } catch (error) {
+      patch.status = "failed";
+      console.error("Dwella concept view render failed", {
+        viewId: String(args.viewId),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    await ctx.runMutation(internal.conceptDesigner.updateViewRow, { viewId: args.viewId, patch });
+    return null;
+  },
+});
+
+export const getViewForRender = internalQuery({
+  args: { viewId: v.id("agentConceptViews") },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const view = await ctx.db.get(args.viewId);
+    if (!view) return null;
+    const option = await ctx.db.get(view.optionId);
+    const conceptPackage = option ? await ctx.db.get(option.packageId) : null;
+    return {
+      ...view,
+      option: option
+        ? { ...option, brief: conceptPackage?.brief ?? {}, briefSummary: conceptPackage?.briefSummary ?? "" }
+        : null,
+    };
+  },
+});
+
+export const updateViewRow = internalMutation({
+  args: {
+    viewId: v.id("agentConceptViews"),
+    patch: v.object({
+      status: v.optional(v.union(v.literal("rendering"), v.literal("ready"), v.literal("failed"))),
+      imageId: v.optional(v.id("_storage")),
+      updatedAt: v.number(),
+    }),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const view = await ctx.db.get(args.viewId);
+    if (view) await ctx.db.patch(args.viewId, args.patch);
+    return null;
+  },
+});
+
 export const renderFloorPlanImage = internalAction({
   args: { optionId: v.id("agentConceptOptions") },
   returns: v.null(),
@@ -232,7 +354,14 @@ export const renderFloorPlanImage = internalAction({
 
     const patch = { updatedAt: Date.now() };
     try {
-      const plan = await generateImage({ prompt: buildFloorPlanPrompt(option), apiKey: env.OPENAI_API_KEY });
+      const sketchBlob = option.sketchImageId ? await ctx.storage.get(option.sketchImageId) : null;
+      const plan = sketchBlob
+        ? await colorizeImage({
+            image: sketchBlob,
+            prompt: buildFloorPlanPrompt(option, { fromSketch: true }),
+            apiKey: env.OPENAI_API_KEY,
+          })
+        : await generateImage({ prompt: buildFloorPlanPrompt(option), apiKey: env.OPENAI_API_KEY });
       patch.floorPlanImageId = await ctx.storage.store(plan);
       patch.floorPlanStatus = "ready";
     } catch (error) {
@@ -323,18 +452,27 @@ export const getConceptContextForAgent = internalQuery({
     return {
       briefSummary: conceptPackage.briefSummary,
       brief: conceptPackage.brief,
-      concepts: options
-        .sort((a, b) => a.order - b.order)
-        .map((option) => ({
-          name: option.name,
-          summary: option.summary,
-          style: option.style,
-          storeys: option.storeys,
-          materials: option.materials,
-          sketch: option.status,
-          colour: option.colorStatus ?? "not_generated",
-          floorPlan: option.floorPlanStatus ?? "not_generated",
-        })),
+      concepts: await Promise.all(
+        options
+          .sort((a, b) => a.order - b.order)
+          .map(async (option) => {
+            const viewRows = await ctx.db
+              .query("agentConceptViews")
+              .withIndex("by_optionId", (q) => q.eq("optionId", option._id))
+              .take(8);
+            return {
+              name: option.name,
+              summary: option.summary,
+              style: option.style,
+              storeys: option.storeys,
+              materials: option.materials,
+              sketch: option.status,
+              colour: option.colorStatus ?? "not_generated",
+              floorPlan: option.floorPlanStatus ?? "not_generated",
+              extraViews: viewRows.map((view) => ({ label: view.label, status: view.status })),
+            };
+          })
+      ),
     };
   },
 });
@@ -384,7 +522,21 @@ export const listThreadConcepts = query({
 
     const concepts = [];
     for (const option of options.sort((a, b) => a.order - b.order)) {
+      const viewRows = await ctx.db
+        .query("agentConceptViews")
+        .withIndex("by_optionId", (q) => q.eq("optionId", option._id))
+        .take(8);
+      const views = [];
+      for (const view of viewRows) {
+        views.push({
+          id: view._id,
+          label: view.label,
+          status: view.status,
+          imageUrl: view.imageId ? await ctx.storage.getUrl(view.imageId) : null,
+        });
+      }
       concepts.push({
+        views,
         id: option._id,
         name: option.name,
         summary: option.summary,
@@ -559,15 +711,11 @@ function buildColorizePrompt(option) {
     .join("\n");
 }
 
-function buildFloorPlanPrompt(option) {
+function buildFloorPlanPrompt(option, { fromSketch = false } = {}) {
   const brief = option.brief ?? {};
-  const rooms = [
-    `${option.bedrooms ?? 4} bedrooms including a main bedroom with ensuite and walk-in robe`,
-    `${option.bathrooms ?? 2} bathrooms`,
-    "open-plan kitchen, dining and living",
-    "double garage",
-    "laundry",
-    "covered alfresco connected to the living area",
+  const spaces = [
+    option.bedrooms ? `${option.bedrooms} bedrooms` : "",
+    option.bathrooms ? `${option.bathrooms} bathrooms` : "",
     ...(Array.isArray(brief.mustHaves) ? brief.mustHaves : []),
   ]
     .map((item) => cleanText(item))
@@ -575,16 +723,33 @@ function buildFloorPlanPrompt(option) {
     .slice(0, 14);
 
   return [
-    "Draw a concept floor plan for an Australian custom home, presentation quality, as a designer would show a client.",
+    fromSketch
+      ? "Using this front concept sketch of the home as the locked design reference, draw the concept floor plan of the same home. Match its massing, entry position, garage placement and overall footprint."
+      : "Draw a concept floor plan for an Australian custom home, presentation quality, as a designer would show a client.",
     "Style: strictly top-down orthographic 2D architectural floor plan, flat pure white background, clean black and grey CAD-style linework, light grey wall fills, minimal furniture outlines, clear readable room labels in a plain sans-serif font, metric room dimensions, a small north arrow.",
-    "Layout the plan for this locked concept:",
-    `- Concept: ${option.name} (${option.style})`,
-    `- Storeys: ${option.storeys} (draw the ground floor)`,
-    `- Rooms: ${rooms.join("; ")}`,
+    `Concept: ${option.name} (${option.style}), ${option.storeys} storey${option.storeys === 1 ? "" : "s"}; draw the ground floor.`,
+    spaces.length
+      ? `Spaces to include, taken only from the owner's brief and this concept: ${spaces.join("; ")}.`
+      : "Include only the spaces this concept genuinely calls for.",
+    "Do not invent rooms or features the brief does not call for.",
     ...describeBriefForImage(option),
-    "Design logic: north-facing living where plausible, wet areas grouped, garage with street access, bedrooms away from the street, alfresco connected to living, sensible circulation.",
+    "Design logic: sensible Australian planning, wet areas grouped, living connected to outdoor space where the concept calls for it, practical circulation.",
     "Do not add: perspective, colour renders, fake stamps, approval marks, signatures, registration numbers, logos, title blocks, or any text besides room labels, dimensions and the north arrow.",
     "This is a concept-only diagram, keep it clean, plausible and readable.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildViewPrompt(option, request) {
+  return [
+    `Using this front concept sketch of the home as the locked design reference, create the following view of the exact same home: ${request}.`,
+    "Keep the design identical: same storeys, roof form, proportions, window and door language, and overall character as the sketch.",
+    option.materials.length ? `Materials: ${option.materials.join(", ")}.` : "",
+    option.style ? `Overall feel: ${option.style}.` : "",
+    ...describeBriefForImage(option),
+    "Render it realistically with natural Australian daylight and plausible landscaping for the setting.",
+    "Do not add or remove building elements. No text, no signage, no logos, no watermarks, no people.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -611,18 +776,20 @@ function buildHeroPrompt(option) {
 
 function buildSketchPrompt(option) {
   return [
-    "Create a clean architectural concept elevation sketch for an Australian custom home client presentation.",
+    "Create a clean architectural concept sketch of the entire front of an Australian custom home in its setting, as a designer would present to a client.",
     "Design lock:",
     `- Concept: ${option.name}`,
     `- Style: ${option.style}`,
     `- Storeys: ${option.storeys}`,
     option.roofForm ? `- Roof form: ${option.roofForm}` : "",
-    `- Facade materials: ${option.materials.join(", ")}`,
+    option.materials.length ? `- Facade materials: ${option.materials.join(", ")}` : "",
     option.keyIdea ? `- Key idea: ${option.keyIdea}` : "",
     ...describeBriefForImage(option),
+    "Composition: eye-level three-quarter front perspective showing the complete home and its immediate surroundings: the front entry path, a clearly visible and reachable front door, driveway and vehicle access if the concept includes parking, front garden and landscaping, and the ground line. Nothing cropped out of frame.",
+    "The home must make sense as a place people live: a person must plausibly be able to walk from the street to the front door, and every level must be reachable.",
     "Style requirements: flat pure white background, professional architectural line drawing, black and soft grey linework, subtle shadow only to show depth, no colour beyond minimal grey tone.",
     "No people, cars, logos, fake stamps, fake signatures, fake registration numbers, or fake handwritten notes. No invented annotations.",
-    "Do not add rooms, windows, garage doors, balconies, or roof elements not listed in the design lock. Keep it presentation-ready.",
+    "Do not add storeys, garage doors, balconies, or roof elements not in the design lock. Keep it presentation-ready.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -644,7 +811,7 @@ function cleanConcept(concept) {
     ...(Number.isFinite(concept?.bedrooms) ? { bedrooms: clampNumber(concept.bedrooms, 1, 8, 4) } : {}),
     ...(Number.isFinite(concept?.bathrooms) ? { bathrooms: clampNumber(concept.bathrooms, 1, 6, 2) } : {}),
     ...(cleanText(concept?.roofForm) ? { roofForm: cleanText(concept.roofForm).slice(0, 160) } : {}),
-    materials: materials.length ? materials : ["metal roof", "fibre cement cladding", "Australian hardwood accents"],
+    materials,
     ...(cleanText(concept?.keyIdea) ? { keyIdea: cleanText(concept.keyIdea).slice(0, 300) } : {}),
     ...(cleanText(concept?.rationale) ? { rationale: cleanText(concept.rationale).slice(0, 1200) } : {}),
     riskFlags: (Array.isArray(concept?.riskFlags) ? concept.riskFlags : [])

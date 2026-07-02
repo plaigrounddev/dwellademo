@@ -1034,6 +1034,16 @@ function AgentShell() {
     [agentWorkspaceStore, thread.id]
   );
 
+  const requestConceptViewFromCommand = React.useCallback(
+    (payload = {}) => {
+      if (!agentWorkspaceStore) return;
+      agentWorkspaceStore
+        .renderConceptView(thread.id, { conceptName: payload.conceptName, view: payload.view })
+        .catch((error) => console.error("Dwella concept view request failed", error));
+    },
+    [agentWorkspaceStore, thread.id]
+  );
+
   const focusMapFromCommand = React.useCallback(
     (payload = {}) => {
       if (!isFiniteNumber(payload.lat) || !isFiniteNumber(payload.lng)) return;
@@ -1115,6 +1125,10 @@ function AgentShell() {
           requestConceptFloorPlanFromCommand(command.payload);
         }
 
+        if (command?.type === "render_concept_view") {
+          requestConceptViewFromCommand(command.payload);
+        }
+
         if (command?.type === "focus_map") {
           focusMapFromCommand(command.payload);
         }
@@ -1142,7 +1156,7 @@ function AgentShell() {
         }
       }
     },
-    [exportDocumentForUser, focusMapFromCommand, generateConceptsFromCommand, requestConceptColorFromCommand, requestConceptFloorPlanFromCommand, workspaceActions]
+    [exportDocumentForUser, focusMapFromCommand, generateConceptsFromCommand, requestConceptColorFromCommand, requestConceptFloorPlanFromCommand, requestConceptViewFromCommand, workspaceActions]
   );
 
   const sendMessage = React.useCallback(
@@ -1483,6 +1497,20 @@ function AgentShell() {
         };
       }
 
+      if (name === "show_concept_view") {
+        if (!String(args.view ?? "").trim()) {
+          return { ok: false, error: "A view description is required." };
+        }
+        requestConceptViewFromCommand(args);
+        openArtifact("concepts");
+        return {
+          ok: true,
+          artifact: "concepts",
+          status: "rendering",
+          message: "That view is being created in the gallery from the concept's locked design.",
+        };
+      }
+
       if (name === "focus_map") {
         if (!isFiniteNumber(args.lat) || !isFiniteNumber(args.lng)) {
           return { ok: false, error: "Map coordinates are required." };
@@ -1494,7 +1522,7 @@ function AgentShell() {
 
       return { ok: false, error: `Unknown tool: ${name}` };
     },
-    [exportDocumentForUser, focusMapFromCommand, generateConceptsFromCommand, openArtifact, requestConceptColorFromCommand, requestConceptFloorPlanFromCommand, workspaceActions]
+    [exportDocumentForUser, focusMapFromCommand, generateConceptsFromCommand, openArtifact, requestConceptColorFromCommand, requestConceptFloorPlanFromCommand, requestConceptViewFromCommand, workspaceActions]
   );
 
   const handleRealtimeToolCall = React.useCallback(
@@ -2470,6 +2498,39 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
     if (activeIndex !== safeIndex) setActiveIndex(safeIndex);
   }, [activeIndex, safeIndex]);
 
+  // When a colour, plan, or derived view starts or finishes rendering, bring it on
+  // stage automatically so the user never has to know to click.
+  const prevRenderStatusesRef = React.useRef({});
+  React.useEffect(() => {
+    const previous = prevRenderStatusesRef.current;
+    const next = {};
+    concepts.forEach((item, index) => {
+      next[item.id] = {
+        colour: item.colorStatus,
+        plan: item.floorPlanStatus,
+        ...(Object.fromEntries((item.views ?? []).map((view) => [view.id, view.status]))),
+      };
+      const before = previous[item.id];
+      if (!before) return;
+      const bringOnStage = (viewKey) => {
+        setViewPreference((current) => ({ ...current, [item.id]: viewKey }));
+        setActiveIndex(index);
+      };
+      if (item.colorStatus !== before.colour && (item.colorStatus === "rendering" || item.colorStatus === "ready")) {
+        bringOnStage("colour");
+      }
+      if (item.floorPlanStatus !== before.plan && (item.floorPlanStatus === "rendering" || item.floorPlanStatus === "ready")) {
+        bringOnStage("plan");
+      }
+      for (const view of item.views ?? []) {
+        if (view.status !== before[view.id] && (view.status === "rendering" || view.status === "ready")) {
+          bringOnStage(view.id);
+        }
+      }
+    });
+    prevRenderStatusesRef.current = next;
+  }, [concepts]);
+
   const goTo = (index) => {
     setActiveIndex(Math.max(0, Math.min(conceptCount - 1, index)));
   };
@@ -2487,11 +2548,13 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
     );
   }
 
+  const extraViews = concept.views ?? [];
   const requestedView = viewPreference[concept.id] ?? "auto";
   const activeView =
     requestedView === "auto" ? (concept.heroImageUrl ? "colour" : "sketch") : requestedView;
   const isColoring = concept.colorStatus === "rendering";
   const isPlanning = concept.floorPlanStatus === "rendering";
+  const activeExtraView = extraViews.find((view) => view.id === activeView) ?? null;
 
   const setView = (view) => setViewPreference((current) => ({ ...current, [concept.id]: view }));
 
@@ -2513,14 +2576,18 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
     }
   };
 
-  const displayedImage =
-    activeView === "plan"
+  const displayedImage = activeExtraView
+    ? activeExtraView.imageUrl ?? concept.sketchImageUrl
+    : activeView === "plan"
       ? concept.floorPlanImageUrl
       : activeView === "colour"
         ? concept.heroImageUrl ?? concept.sketchImageUrl
         : concept.sketchImageUrl;
-  const busyLabel =
-    activeView === "plan" && !concept.floorPlanImageUrl && isPlanning
+  const busyLabel = activeExtraView
+    ? !activeExtraView.imageUrl && activeExtraView.status === "rendering"
+      ? `Creating ${activeExtraView.label.toLowerCase()}...`
+      : ""
+    : activeView === "plan" && !concept.floorPlanImageUrl && isPlanning
       ? "Drawing the plan..."
       : activeView === "colour" && !concept.heroImageUrl && isColoring
         ? "Painting it in..."
@@ -2529,6 +2596,12 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
     { key: "sketch", label: "Sketch", onSelect: () => setView("sketch"), busy: false },
     { key: "colour", label: "Colour", onSelect: selectColour, busy: isColoring },
     { key: "plan", label: "Plan", onSelect: selectPlan, busy: isPlanning },
+    ...extraViews.map((view) => ({
+      key: view.id,
+      label: view.label,
+      onSelect: () => setView(view.id),
+      busy: view.status === "rendering",
+    })),
   ];
 
   return (
@@ -2550,7 +2623,7 @@ function ConvexConceptsArtifact({ threadId, conceptStore }) {
             <img
               className={busyLabel ? "concept-stage__image is-coloring" : "concept-stage__image"}
               src={displayedImage}
-              alt={`${concept.name} ${activeView === "plan" ? "concept floor plan" : activeView === "colour" ? "colour concept render" : "concept sketch"}`}
+              alt={`${concept.name} ${activeExtraView ? activeExtraView.label : activeView === "plan" ? "concept floor plan" : activeView === "colour" ? "colour concept render" : "concept sketch"}`}
             />
           ) : concept.status === "failed" ? (
             <div className="concept-stage__fallback">

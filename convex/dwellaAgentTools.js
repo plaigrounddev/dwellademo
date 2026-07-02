@@ -225,6 +225,28 @@ export const showConceptFloorPlan = internalAction({
   },
 });
 
+export const showConceptView = internalAction({
+  args: {
+    conceptName: v.optional(v.string()),
+    view: v.string(),
+  },
+  returns: v.any(),
+  handler: async (_ctx, args) => {
+    const conceptName = cleanText(args.conceptName, "the latest concept");
+    return commandResult(`Started creating the ${cleanText(args.view, "requested view")} for ${conceptName}.`, [
+      {
+        type: "render_concept_view",
+        target: "concepts",
+        payload: {
+          conceptName: cleanOptionalText(args.conceptName) ?? "",
+          view: cleanText(args.view),
+        },
+      },
+      openArtifact("concepts", "show_concept_view"),
+    ]);
+  },
+});
+
 export const focusMap = internalAction({
   args: {
     lat: v.number(),
