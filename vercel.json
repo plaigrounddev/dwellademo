@@ -5,6 +5,10 @@
     {
       "source": "/dwella/agent/:path*",
       "destination": "https://intent-magpie-439.convex.site/dwella/agent/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

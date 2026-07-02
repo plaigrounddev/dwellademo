@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildExportDocumentModel,
   createDocHtml,
   createDocumentExport,
   normalizeDocumentExportFormat,
@@ -45,6 +46,62 @@ test("creates a real PDF export", async () => {
   assert.equal(exported.mimeType, "application/pdf");
   assert.equal(Buffer.from(exported.bytes).subarray(0, 4).toString("utf8"), "%PDF");
   assert.ok(exported.size > 500, "PDF export should contain a generated document body");
+});
+
+test("parses markdown structure for styled document exports", () => {
+  const model = buildExportDocumentModel({
+    title: "Builder brief",
+    content: [
+      "# Urban Luxe Terrace, Builder Brief",
+      "",
+      "## Budget",
+      "**Build budget:** Around AUD 500,000, subject to site costs.",
+      "",
+      "## Must-haves",
+      "- **Higher ceilings** as a key luxury feature.",
+      "- A layout that supports family living.",
+      "",
+      "## Questions for builders",
+      "1. What is included in the base price?",
+    ].join("\n"),
+  });
+
+  assert.equal(model.title, "Urban Luxe Terrace, Builder Brief");
+  assert.deepEqual(model.blocks.map((block) => block.type), [
+    "heading",
+    "paragraph",
+    "heading",
+    "listItem",
+    "listItem",
+    "heading",
+    "listItem",
+  ]);
+  assert.equal(model.blocks[1].segments[0].text, "Build budget:");
+  assert.equal(model.blocks[1].segments[0].bold, true);
+  assert.equal(model.blocks[3].segments[0].text, "Higher ceilings");
+  assert.equal(model.blocks[3].segments[0].bold, true);
+});
+
+test("DOC export renders markdown as document styling instead of literal syntax", () => {
+  const html = createDocHtml({
+    title: "Builder brief",
+    content: [
+      "# Urban Luxe Terrace, Builder Brief",
+      "",
+      "## Budget",
+      "**Build budget:** Around AUD 500,000.",
+      "",
+      "- **Higher ceilings** as a key luxury feature.",
+      "1. What is included in the base price?",
+    ].join("\n"),
+  });
+
+  assert.match(html, /<h1>Urban Luxe Terrace, Builder Brief<\/h1>/);
+  assert.match(html, /<h2>Budget<\/h2>/);
+  assert.match(html, /<strong>Build budget:<\/strong> Around AUD 500,000\./);
+  assert.match(html, /<li><strong>Higher ceilings<\/strong> as a key luxury feature\.<\/li>/);
+  assert.match(html, /<ol><li>What is included in the base price\?<\/li><\/ol>/);
+  assert.doesNotMatch(html, /# Urban Luxe|## Budget|\*\*Build budget|\*\*Higher ceilings|<p>-\s/);
 });
 
 test("PDF export does not throw on non-WinAnsi characters", async () => {

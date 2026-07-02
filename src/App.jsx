@@ -1,7 +1,7 @@
 import React from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import L from "leaflet";
-import { ArrowUp, ChevronLeft, ChevronRight, CirclePlus, Files, FileText, Home, Images, Map, MessageCircle, Mic, PanelsTopLeft, SquarePen, X } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, CirclePlus, Files, FileText, Folder, Home, Images, Map, Menu, MessageCircle, Mic, PanelsTopLeft, Phone, SquarePen, X } from "lucide-react";
 import { SignIn, SignUp, UserButton, useAuth } from "@clerk/react";
 import { useConvex, useConvexAuth, useQuery } from "convex/react";
 import { useThreadMessages } from "convex-durable-agents/react";
@@ -23,6 +23,7 @@ import { DocumentImgIllustration } from "./components/illustrations/document-img
 import { DocumentPdfIllustration } from "./components/illustrations/document-pdf.jsx";
 import { DocumentTxtIllustration } from "./components/illustrations/document-txt.jsx";
 import { DocumentZipIllustration } from "./components/illustrations/document-zip.jsx";
+import { CommandSearch } from "./components/ui/command-search.jsx";
 import { Diamond } from "./components/ui/diamond.jsx";
 import { LiveWaveform } from "./components/ui/live-waveform.jsx";
 import {
@@ -175,6 +176,8 @@ const artifactMenuItems = [
 
 // "browser" is temporarily retired from the UI; workspace state still carries it.
 const artifactTargets = ["doc", "map", "files", "concepts"];
+const artifactPanelSpring = { type: "spring", stiffness: 360, damping: 38, mass: 0.82 };
+const artifactSwitchTransition = { duration: 0.18, ease: [0.22, 1, 0.36, 1] };
 
 const agentUserButtonAppearance = {
   elements: {
@@ -454,6 +457,63 @@ function AgentMessageContent({ message }) {
   );
 }
 
+function TextShimmer({
+  children,
+  as: Component = "span",
+  className = "",
+  duration = 2,
+  spread = 2,
+  baseColor,
+  shimmerColor,
+  style,
+}) {
+  const MotionComponent = React.useMemo(() => motion.create(Component), [Component]);
+  const dynamicSpread = React.useMemo(() => String(children ?? "").length * spread, [children, spread]);
+
+  return (
+    <MotionComponent
+      className={["text-shimmer", className].filter(Boolean).join(" ")}
+      initial={{ backgroundPosition: "100% center" }}
+      animate={{ backgroundPosition: "0% center" }}
+      transition={{ repeat: Infinity, duration, ease: "linear" }}
+      style={{
+        ...style,
+        "--spread": `${dynamicSpread}px`,
+        "--base-color": baseColor ?? "color-mix(in oklab, currentColor 55%, transparent)",
+        "--base-gradient-color": shimmerColor ?? "currentColor",
+        backgroundImage: "var(--bg), linear-gradient(var(--base-color), var(--base-color))",
+      }}
+    >
+      {children}
+    </MotionComponent>
+  );
+}
+
+function useMediaQuery(query) {
+  const getMatches = React.useCallback(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia(query).matches;
+  }, [query]);
+  const [matches, setMatches] = React.useState(getMatches);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const mediaQuery = window.matchMedia(query);
+    const handleChange = () => setMatches(mediaQuery.matches);
+    handleChange();
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => mediaQuery.removeEventListener("change", handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, [query]);
+
+  return matches;
+}
+
 function AgentConversation({ messages, isProcessing = false, showVoiceCta = false, onStartVoice }) {
   return (
     <StickToBottom className="agent-conversation" resize="smooth" initial="instant" role="log" aria-label="Conversation">
@@ -473,11 +533,18 @@ function AgentConversation({ messages, isProcessing = false, showVoiceCta = fals
           </article>
         ))}
         {showVoiceCta ? (
-          <button className="agent-voice-cta" type="button" onClick={onStartVoice}>
-            <span className="agent-voice-cta__icon" aria-hidden="true">
-              <Mic />
+          <button className="agent-voice-cta" type="button" onClick={onStartVoice} aria-label="Call Dwella">
+            <TextShimmer
+              className="agent-voice-cta__copy"
+              baseColor="rgba(24, 25, 24, 0.42)"
+              shimmerColor="#181918"
+              spread={2.2}
+            >
+              Dwella is calling...
+            </TextShimmer>
+            <span className="agent-voice-cta__action" aria-hidden="true">
+              <Phone />
             </span>
-            <span>Start chatting with Dwella</span>
           </button>
         ) : null}
         {isProcessing ? (
@@ -656,6 +723,8 @@ function AgentShell() {
   const convexClient = useDwellaConvexClient();
   const { isAuthenticated, isLoading } = useDwellaConvexAuth();
   const { getToken, isLoaded: clerkLoaded, isSignedIn } = useDwellaAuth();
+  const prefersReducedMotion = useReducedMotion();
+  const isCompactArtifactMotion = useMediaQuery("(max-width: 900px)");
   const agentClient = React.useMemo(
     () => createDwellaAgentClient({
       endpoint: agentEndpoint,
@@ -671,6 +740,7 @@ function AgentShell() {
     [convexClient, isAuthenticated]
   );
   const initialArtifact = getInitialArtifact();
+  const initialArtifactOpen = Boolean(getRequestedArtifact());
   const [thread] = React.useState(() => agentClient.getOrCreateThread());
   const [userProfile, setUserProfile] = React.useState(() => loadUserProfile());
   const [onboardingOpen, setOnboardingOpen] = React.useState(() => !loadUserProfile());
@@ -683,7 +753,8 @@ function AgentShell() {
     skip: localAuthBypass || !isAuthenticated,
   });
   const [artifactMenuOpen, setArtifactMenuOpen] = React.useState(false);
-  const [artifactOpen, setArtifactOpen] = React.useState(() => Boolean(getRequestedArtifact()));
+  const [artifactOpen, setArtifactOpen] = React.useState(initialArtifactOpen);
+  const [artifactLayoutOpen, setArtifactLayoutOpen] = React.useState(initialArtifactOpen);
   const [activeArtifact, setActiveArtifact] = React.useState(initialArtifact);
   const [prompt, setPrompt] = React.useState("");
   const [messages, setMessages] = React.useState(() => loadConversationMessages(thread.id));
@@ -702,6 +773,7 @@ function AgentShell() {
   const attachedFilesRef = React.useRef(attachedFiles);
   const workspacePersistenceRef = React.useRef(workspacePersistence);
   const workspaceRef = React.useRef(workspace);
+  const artifactOpenRef = React.useRef(artifactOpen);
   const mediaRecorderRef = React.useRef(null);
   const voiceChunksRef = React.useRef([]);
   const voiceStreamRef = React.useRef(null);
@@ -774,12 +846,17 @@ function AgentShell() {
   }, [workspacePersistence]);
 
   React.useEffect(() => {
+    artifactOpenRef.current = artifactOpen;
+  }, [artifactOpen]);
+
+  React.useEffect(() => {
     const syncArtifactFromUrl = () => {
       if (window.location.pathname !== "/agent") return;
       const requestedArtifact = getRequestedArtifact();
       if (!requestedArtifact) return;
       artifactDismissedRef.current = false;
       setActiveArtifact(requestedArtifact);
+      setArtifactLayoutOpen(true);
       setArtifactOpen(true);
     };
 
@@ -825,6 +902,7 @@ function AgentShell() {
   const closeArtifact = () => {
     artifactDismissedRef.current = true;
     setArtifactMenuOpen(false);
+    setArtifactLayoutOpen(false);
     setArtifactOpen(false);
     if (window.location.pathname === "/agent" && window.location.search) {
       window.history.replaceState({}, "", "/agent");
@@ -833,6 +911,7 @@ function AgentShell() {
 
   const openArtifact = React.useCallback((target) => {
     artifactDismissedRef.current = false;
+    setArtifactLayoutOpen(true);
     if (target && artifactTargets.includes(target)) {
       setActiveArtifact(target);
       if (window.location.pathname === "/agent") {
@@ -841,6 +920,51 @@ function AgentShell() {
     }
     setArtifactOpen(true);
   }, []);
+
+  const artifactPanelMotion = React.useMemo(() => {
+    if (prefersReducedMotion) {
+      return {
+        initial: { opacity: 0 },
+        animate: { opacity: 1 },
+        exit: { opacity: 0 },
+        transition: { duration: 0.12, ease: "linear" },
+      };
+    }
+
+    if (isCompactArtifactMotion) {
+      return {
+        initial: { opacity: 0, y: 20, scale: 0.99 },
+        animate: { opacity: 1, y: 0, scale: 1 },
+        exit: { opacity: 0, y: 18, scale: 0.99 },
+        transition: artifactPanelSpring,
+      };
+    }
+
+    return {
+      initial: { opacity: 0, x: 22, scale: 0.992 },
+      animate: { opacity: 1, x: 0, scale: 1 },
+      exit: { opacity: 0, x: 18, scale: 0.992 },
+      transition: artifactPanelSpring,
+    };
+  }, [isCompactArtifactMotion, prefersReducedMotion]);
+
+  const artifactSwitchMotion = React.useMemo(() => {
+    if (prefersReducedMotion) {
+      return {
+        initial: { opacity: 0 },
+        animate: { opacity: 1 },
+        exit: { opacity: 0 },
+        transition: { duration: 0.1, ease: "linear" },
+      };
+    }
+
+    return {
+      initial: { opacity: 0, y: 8, filter: "blur(3px)" },
+      animate: { opacity: 1, y: 0, filter: "blur(0px)" },
+      exit: { opacity: 0, y: -6, filter: "blur(2px)" },
+      transition: artifactSwitchTransition,
+    };
+  }, [prefersReducedMotion]);
 
   const updateWorkspace = React.useCallback((updater) => {
     setWorkspace((current) => {
@@ -1152,6 +1276,7 @@ function AgentShell() {
           workspaceActions.setActiveDocument(command.payload.documentId);
         }
         if (shouldAutoOpenArtifact && target && !artifactDismissedRef.current && shouldOpenArtifactForCommand(command.type)) {
+          setArtifactLayoutOpen(true);
           setArtifactOpen(true);
         }
       }
@@ -1947,6 +2072,11 @@ function AgentShell() {
     }
   };
 
+  const startVoiceFromCta = () => {
+    playCallRingSound();
+    startVoice();
+  };
+
   const stopVoiceControl = () => {
     try {
       if (isRealtimeConnected || isRealtimeConnecting) {
@@ -1994,9 +2124,9 @@ function AgentShell() {
   };
 
   return (
-    <main className={artifactOpen ? "agent-shell" : "agent-shell agent-shell--artifact-closed"} aria-label="Dwella agent workspace">
+    <main className={artifactLayoutOpen ? "agent-shell" : "agent-shell agent-shell--artifact-closed"} aria-label="Dwella agent workspace">
       <aside className="agent-rail" aria-label="Agent navigation">
-        <a className="agent-rail__brand" href="/" aria-label="Dwella home">
+        <a className="agent-rail__brand" href="/" aria-label="Dwella home" data-tooltip="Home">
           <AgentIcon name="home" />
         </a>
         <nav className="agent-rail__menu" aria-label="Workspace tools">
@@ -2004,45 +2134,53 @@ function AgentShell() {
             className="agent-rail__button"
             type="button"
             aria-label="Start a new conversation"
-            title="New conversation"
+            data-tooltip="New conversation"
             onClick={startNewConversation}
           >
             <SquarePen className="agent-icon" aria-hidden="true" strokeWidth={1.35} absoluteStrokeWidth />
           </button>
           <span className="agent-rail__divider" aria-hidden="true" />
-          {agentNavItems.map((item) => (
-            <button
-              className={(item.icon === "chat" && !artifactOpen) || item.icon === activeArtifact ? "agent-rail__button is-active" : "agent-rail__button"}
-              key={item.label}
-              type="button"
-              aria-label={item.label}
-              title={item.label}
-              onClick={() => {
-                if (item.icon === "chat") {
-                  closeArtifact();
-                } else {
-                  openArtifact(item.icon);
-                }
-              }}
-            >
-              <AgentIcon name={item.icon} />
-            </button>
-          ))}
+          {agentNavItems.map((item) => {
+            const isActive = item.icon === "chat" ? !artifactOpen : artifactOpen && item.icon === activeArtifact;
+            return (
+              <button
+                className={isActive ? "agent-rail__button is-active" : "agent-rail__button"}
+                key={item.label}
+                type="button"
+                aria-label={item.label}
+                data-tooltip={item.label}
+                onClick={() => {
+                  if (item.icon === "chat") {
+                    closeArtifact();
+                  } else {
+                    openArtifact(item.icon);
+                  }
+                }}
+              >
+                <AgentIcon name={item.icon} />
+              </button>
+            );
+          })}
         </nav>
         {!localAuthBypass && isSignedIn ? (
-          <div className="agent-rail__account">
+          <div className="agent-rail__account" data-tooltip="Account">
             <UserButton afterSignOutUrl="/" appearance={agentUserButtonAppearance} />
           </div>
         ) : null}
       </aside>
 
-      <section className="agent-drawer" aria-label="Conversation drawer">
+      <motion.section
+        className="agent-drawer"
+        aria-label="Conversation drawer"
+        layout={!prefersReducedMotion}
+        transition={{ layout: artifactPanelSpring }}
+      >
         <h1 className="sr-only">Dwella agent workspace</h1>
         <AgentConversation
           messages={messages}
           isProcessing={isAgentBusy}
           showVoiceCta={messages.length <= 1 && !isVoiceActive && !isAgentBusy && !onboardingOpen}
-          onStartVoice={startVoice}
+          onStartVoice={startVoiceFromCta}
         />
 
         <form className={showPromptWaveform ? "agent-prompt is-voice-mode" : "agent-prompt"} action="#" onSubmit={submitPrompt}>
@@ -2169,7 +2307,7 @@ function AgentShell() {
             </motion.div>
           </div>
         </form>
-      </section>
+      </motion.section>
 
       <button
         className="agent-artifact-open"
@@ -2178,65 +2316,96 @@ function AgentShell() {
         aria-expanded={artifactOpen}
         onClick={() => {
           artifactDismissedRef.current = false;
+          setArtifactLayoutOpen(true);
           setArtifactOpen(true);
         }}
       >
         <AgentIcon name="browser" />
       </button>
 
-      <section className="agent-preview" aria-label="Preview workspace" aria-hidden={!artifactOpen}>
-        <button className="agent-bottom-sheet-handle" type="button" aria-label="Close artifact preview" onClick={closeArtifact}>
-          <span />
-        </button>
-        <div className="agent-artifact-menu">
-          <button className="agent-artifact-close" type="button" aria-label="Close artifact preview" onClick={closeArtifact}>
-            <span />
-            <span />
-          </button>
-          <button
-            className="agent-artifact-menu__trigger"
-            type="button"
-            aria-label="Open artifact menu"
-            aria-expanded={artifactMenuOpen}
-            aria-controls="agent-artifact-menu"
-            onClick={() => setArtifactMenuOpen((isOpen) => !isOpen)}
+      <AnimatePresence
+        initial={false}
+        mode="popLayout"
+        onExitComplete={() => {
+          if (!artifactOpenRef.current) setArtifactLayoutOpen(false);
+        }}
+      >
+        {artifactOpen ? (
+          <motion.section
+            key="agent-preview"
+            className="agent-preview"
+            aria-label="Preview workspace"
+            aria-hidden={!artifactOpen}
+            initial={artifactPanelMotion.initial}
+            animate={artifactPanelMotion.animate}
+            exit={artifactPanelMotion.exit}
+            transition={artifactPanelMotion.transition}
+            style={{ transformOrigin: isCompactArtifactMotion ? "center bottom" : "right center" }}
           >
-            <span />
-            <span />
-            <span />
-          </button>
-          {artifactMenuOpen ? (
-            <div className="agent-artifact-menu__content" id="agent-artifact-menu" role="menu">
-              {artifactMenuItems.map((item) => (
-                <button
-                  className="agent-artifact-menu__item"
-                  key={item.label}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setArtifactMenuOpen(false);
-                    openArtifact(item.icon);
-                  }}
-                >
-                  <AgentIcon name={item.icon} />
-                  <span>{item.label}</span>
-                </button>
-              ))}
+            <button className="agent-bottom-sheet-handle" type="button" aria-label="Close artifact preview" onClick={closeArtifact}>
+              <span />
+            </button>
+            <div className="agent-artifact-menu">
+              <button className="agent-artifact-close" type="button" aria-label="Close artifact preview" onClick={closeArtifact}>
+                <span />
+                <span />
+              </button>
+              <button
+                className="agent-artifact-menu__trigger"
+                type="button"
+                aria-label="Open artifact menu"
+                aria-expanded={artifactMenuOpen}
+                aria-controls="agent-artifact-menu"
+                onClick={() => setArtifactMenuOpen((isOpen) => !isOpen)}
+              >
+                <Menu className="agent-icon agent-icon--menu" aria-hidden="true" strokeWidth={1.35} absoluteStrokeWidth />
+              </button>
+              {artifactMenuOpen ? (
+                <div className="agent-artifact-menu__content" id="agent-artifact-menu" role="menu">
+                  {artifactMenuItems.map((item) => (
+                    <button
+                      className="agent-artifact-menu__item"
+                      key={item.label}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setArtifactMenuOpen(false);
+                        openArtifact(item.icon);
+                      }}
+                    >
+                      <AgentIcon name={item.icon} />
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-        <div className="agent-preview__surface">
-          <h2 className="sr-only">{artifactMenuItems.find((item) => item.icon === activeArtifact)?.label ?? "Preview workspace"}</h2>
-          <ArtifactWorkspace
-            activeArtifact={activeArtifact}
-            workspace={workspace}
-            actions={workspaceActions}
-            openArtifact={openArtifact}
-            threadId={thread.id}
-            conceptStore={agentWorkspaceStore}
-          />
-        </div>
-      </section>
+            <ArtifactGlobalSearch workspace={workspace} actions={workspaceActions} openArtifact={openArtifact} />
+            <div className="agent-preview__surface">
+              <h2 className="sr-only">{artifactMenuItems.find((item) => item.icon === activeArtifact)?.label ?? "Preview workspace"}</h2>
+              <AnimatePresence initial={false} mode="wait">
+                <motion.div
+                  key={activeArtifact}
+                  className="agent-preview__artifact"
+                  initial={artifactSwitchMotion.initial}
+                  animate={artifactSwitchMotion.animate}
+                  exit={artifactSwitchMotion.exit}
+                  transition={artifactSwitchMotion.transition}
+                >
+                  <ArtifactWorkspace
+                    activeArtifact={activeArtifact}
+                    workspace={workspace}
+                    actions={workspaceActions}
+                    openArtifact={openArtifact}
+                    threadId={thread.id}
+                    conceptStore={agentWorkspaceStore}
+                  />
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </motion.section>
+        ) : null}
+      </AnimatePresence>
 
       {onboardingOpen ? (
         <OnboardingSheet
@@ -2256,12 +2425,13 @@ function OnboardingSheet({ onComplete, onSkip }) {
   const [name, setName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [phone, setPhone] = React.useState("");
-  const canStart = name.trim().length > 0;
+  const [ownsLand, setOwnsLand] = React.useState("");
+  const canStart = name.trim().length > 0 && Boolean(ownsLand);
 
   const submit = (event) => {
     event.preventDefault();
     if (!canStart) return;
-    onComplete({ name: name.trim(), email: email.trim(), phone: phone.trim() });
+    onComplete({ name: name.trim(), email: email.trim(), phone: phone.trim(), ownsLand });
   };
 
   return (
@@ -2310,6 +2480,27 @@ function OnboardingSheet({ onComplete, onSkip }) {
               onChange={(event) => setPhone(event.target.value)}
             />
           </label>
+          <fieldset className="onboarding-sheet__land">
+            <legend>Do you already own the land?</legend>
+            <div className="onboarding-sheet__land-options">
+              <button
+                className={ownsLand === "yes" ? "is-selected" : ""}
+                type="button"
+                aria-pressed={ownsLand === "yes"}
+                onClick={() => setOwnsLand("yes")}
+              >
+                Yes
+              </button>
+              <button
+                className={ownsLand === "no" ? "is-selected" : ""}
+                type="button"
+                aria-pressed={ownsLand === "no"}
+                onClick={() => setOwnsLand("no")}
+              >
+                No
+              </button>
+            </div>
+          </fieldset>
           <button className="onboarding-sheet__start" type="submit" disabled={!canStart}>
             Get started
           </button>
@@ -2363,6 +2554,8 @@ function SignInPage() {
 
   React.useEffect(() => {
     if (!isLoaded || isSignedIn) return;
+    // Never rewrite Clerk subroutes like /sign-in/factor-one or /sign-in/sso-callback.
+    if (window.location.pathname !== "/sign-in") return;
     const currentRedirect = new URLSearchParams(window.location.search).get("redirect_url");
     if (currentRedirect && currentRedirect !== redirectTarget) {
       window.history.replaceState({}, "", `/sign-in?redirect_url=${encodeURIComponent(redirectTarget)}`);
@@ -2414,6 +2607,8 @@ function SignUpPage() {
 
   React.useEffect(() => {
     if (!isLoaded || isSignedIn) return;
+    // Never rewrite Clerk subroutes like /sign-up/verify-email-address or /sign-up/sso-callback.
+    if (window.location.pathname !== "/sign-up") return;
     const currentRedirect = new URLSearchParams(window.location.search).get("redirect_url");
     if (currentRedirect && currentRedirect !== redirectTarget) {
       window.history.replaceState({}, "", `/sign-up?redirect_url=${encodeURIComponent(redirectTarget)}`);
@@ -2717,6 +2912,109 @@ function ConceptStageSkeleton() {
   );
 }
 
+function ArtifactGlobalSearch({ workspace, actions, openArtifact }) {
+  const activeDocument = workspace.documents.find((document) => document.id === workspace.activeDocumentId) ?? workspace.documents[0];
+  const commandItems = React.useMemo(() => {
+    const currentDocumentId = activeDocument?.id;
+    return [
+      ...workspace.documents.map((document) => ({
+        id: `document:${document.id}`,
+        title: document.title || "Untitled document",
+        section: "Documents",
+        icon: <FileText size={15} />,
+        shortcut: document.id === currentDocumentId ? "Current" : "",
+        isSelected: document.id === currentDocumentId,
+        action: () => {
+          actions.setActiveDocument(document.id);
+          openArtifact("doc");
+        },
+      })),
+      ...workspace.folders.map((folder) => ({
+        id: `folder:${folder.id}`,
+        title: folder.name || "Untitled folder",
+        section: "Folders",
+        description: "Open in files",
+        icon: <Folder size={15} />,
+        keywords: ["folder", "files"],
+        action: () => openArtifact("files"),
+      })),
+      ...workspace.files.map((file) => {
+        const parentFolder = workspace.folders.find((folder) => folder.id === file.folderId);
+        return {
+          id: `file:${file.id}`,
+          title: file.name || "Untitled file",
+          section: "Files",
+          description: parentFolder?.name || "Files",
+          icon: file.documentId ? <FileText size={15} /> : <Files size={15} />,
+          keywords: ["file", parentFolder?.name, file.type].filter(Boolean),
+          action: () => {
+            if (file.documentId) {
+              actions.setActiveDocument(file.documentId);
+              openArtifact("doc");
+              return;
+            }
+            openArtifact("files");
+          },
+        };
+      }),
+      {
+        id: "action:new-document",
+        title: "New document",
+        section: "Actions",
+        icon: <CirclePlus size={15} />,
+        action: () => {
+          actions.createDocument();
+          openArtifact("doc");
+        },
+      },
+      {
+        id: "action:open-documents",
+        title: "Document editor",
+        section: "Actions",
+        icon: <FileText size={15} />,
+        action: () => openArtifact("doc"),
+      },
+      {
+        id: "action:open-files",
+        title: "Files",
+        section: "Actions",
+        icon: <Files size={15} />,
+        action: () => openArtifact("files"),
+      },
+      {
+        id: "action:open-map",
+        title: "Live map",
+        section: "Actions",
+        icon: <Map size={15} />,
+        action: () => openArtifact("map"),
+      },
+      {
+        id: "action:open-concepts",
+        title: "Concept gallery",
+        section: "Actions",
+        icon: <Images size={15} />,
+        action: () => openArtifact("concepts"),
+      },
+    ];
+  }, [actions, activeDocument?.id, openArtifact, workspace.documents, workspace.files, workspace.folders]);
+
+  return (
+    <div className="agent-artifact-search">
+      <CommandSearch
+        ariaLabel="Search workspace"
+        className="artifact-global-command"
+        emptyLabel="No workspace results found"
+        id="artifact-global-command-search"
+        items={commandItems}
+        placeholder="Search documents, files, folders, actions..."
+        shortcutKey={null}
+        shortcutLabel={null}
+        triggerLabel="Search workspace"
+      />
+    </div>
+  );
+}
+
 function DocumentArtifact({ workspace, actions, openArtifact }) {
   const activeDocument = workspace.documents.find((document) => document.id === workspace.activeDocumentId) ?? workspace.documents[0];
   const [editorRetryKey, setEditorRetryKey] = React.useState(0);
@@ -2731,21 +3029,6 @@ function DocumentArtifact({ workspace, actions, openArtifact }) {
 
   return (
     <div className="artifact-document">
-      <div className="artifact-toolbar artifact-toolbar--document">
-        <select
-          aria-label="Current document"
-          value={activeDocument.id}
-          onChange={(event) => actions.setActiveDocument(event.target.value)}
-        >
-          {workspace.documents.map((document) => (
-            <option key={document.id} value={document.id}>
-              {document.title}
-            </option>
-          ))}
-        </select>
-        <button type="button" onClick={actions.createDocument}>New</button>
-        <button type="button" onClick={() => openArtifact("files")}>Files</button>
-      </div>
       <div className="convex-document-editor" data-component="convex-document-editor">
         <input
           className="document-title-input"
@@ -3391,8 +3674,9 @@ function loadUserProfile() {
       name: String(saved.name ?? "").trim().slice(0, 120),
       email: String(saved.email ?? "").trim().slice(0, 200),
       phone: String(saved.phone ?? "").trim().slice(0, 40),
+      ownsLand: saved.ownsLand === "yes" || saved.ownsLand === "no" ? saved.ownsLand : "",
     };
-    return profile.name || profile.email || profile.phone ? profile : null;
+    return profile.name || profile.email || profile.phone || profile.ownsLand ? profile : null;
   } catch {
     return null;
   }
@@ -3403,6 +3687,64 @@ function saveUserProfile(profile) {
     window.localStorage.setItem(userProfileStorageKey, JSON.stringify(profile));
   } catch {
     // Profile persistence is best-effort only.
+  }
+}
+
+function playCallRingSound() {
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextCtor) return;
+
+  try {
+    const context = new AudioContextCtor();
+    const now = context.currentTime;
+    const masterGain = context.createGain();
+    const toneFilter = context.createBiquadFilter();
+
+    toneFilter.type = "lowpass";
+    toneFilter.frequency.setValueAtTime(1800, now);
+    toneFilter.Q.setValueAtTime(0.75, now);
+
+    masterGain.gain.setValueAtTime(0.0001, now);
+    masterGain.gain.exponentialRampToValueAtTime(0.045, now + 0.03);
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.05);
+
+    toneFilter.connect(masterGain);
+    masterGain.connect(context.destination);
+
+    [
+      { frequency: 523.25, offset: 0, duration: 0.32, volume: 0.032 },
+      { frequency: 659.25, offset: 0.16, duration: 0.36, volume: 0.026 },
+      { frequency: 783.99, offset: 0.36, duration: 0.46, volume: 0.022 },
+    ].forEach((tone) => {
+      const oscillator = context.createOscillator();
+      const overtone = context.createOscillator();
+      const toneGain = context.createGain();
+      const start = now + tone.offset;
+      const end = start + tone.duration;
+
+      oscillator.type = "triangle";
+      oscillator.frequency.setValueAtTime(tone.frequency, start);
+      oscillator.frequency.exponentialRampToValueAtTime(tone.frequency * 0.996, end);
+
+      overtone.type = "sine";
+      overtone.frequency.setValueAtTime(tone.frequency * 2, start);
+
+      toneGain.gain.setValueAtTime(0.0001, start);
+      toneGain.gain.exponentialRampToValueAtTime(tone.volume, start + 0.025);
+      toneGain.gain.exponentialRampToValueAtTime(0.0001, end);
+
+      oscillator.connect(toneGain);
+      overtone.connect(toneGain);
+      toneGain.connect(toneFilter);
+      oscillator.start(start);
+      overtone.start(start);
+      oscillator.stop(end + 0.04);
+      overtone.stop(end + 0.04);
+    });
+
+    window.setTimeout(() => context.close().catch(() => {}), 1250);
+  } catch {
+    // Audio feedback is optional.
   }
 }
 
@@ -3514,11 +3856,13 @@ export default function App() {
     return <AgentAuthGate />;
   }
 
-  if (path === "/sign-in") {
+  // Clerk path routing renders subroutes like /sign-in/factor-one and
+  // /sign-up/sso-callback, so match by prefix.
+  if (path === "/sign-in" || path.startsWith("/sign-in/")) {
     return <SignInPage />;
   }
 
-  if (path === "/sign-up") {
+  if (path === "/sign-up" || path.startsWith("/sign-up/")) {
     return <SignUpPage />;
   }
 

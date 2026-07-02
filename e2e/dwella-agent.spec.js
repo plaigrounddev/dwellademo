@@ -45,6 +45,14 @@ test("sign-up route normalizes unsafe redirect targets back to the agent", async
   await expect(page.locator("main.auth-page")).toBeVisible();
 });
 
+test("Clerk nested auth routes stay inside the SPA", async ({ page }) => {
+  await page.goto("/sign-in/factor-one?redirect_url=%2Fagent");
+  await expect(page.locator("main.auth-page")).toBeVisible();
+
+  await page.goto("/sign-up/sso-callback?redirect_url=%2Fagent");
+  await expect(page.locator("main.auth-page")).toBeVisible();
+});
+
 test("same-origin agent route rejects unauthenticated durable-agent traffic", async ({ request }) => {
   const response = await request.post("/dwella/agent/runs", {
     data: {

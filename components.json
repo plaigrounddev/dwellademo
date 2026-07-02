@@ -12,13 +12,10 @@
   "iconLibrary": "lucide",
   "aliases": {
     "components": "@/components",
+    "utils": "@/lib/utils",
     "ui": "@/components/ui",
     "lib": "@/lib",
-    "hooks": "@/hooks",
-    "utils": "@/lib/utils",
-    "app": "@/app",
-    "types": "@/types",
-    "content": "@/content"
+    "hooks": "@/hooks"
   },
   "registries": {
     "@tailark-pro": {
@@ -26,6 +23,7 @@
       "headers": {
         "Authorization": "Bearer ${TAILARK_API_KEY}"
       }
-    }
+    },
+    "@lucide-animated": "https://lucide-animated.com/r/{name}.json"
   }
 }

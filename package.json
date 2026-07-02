@@ -30,6 +30,7 @@
     "framer-motion": "^12.42.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.22.0",
+    "motion": "^12.42.2",
     "pdf-lib": "^1.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
